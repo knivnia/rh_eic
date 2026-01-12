@@ -13,8 +13,6 @@ import tempfile
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-TEST_MODE = os.getenv('EIC_TEST_MODE', 'false').lower() == 'true'
-
 IMDS_URL = "http://169.254.169.254/latest/meta-data"
 IMDS_TOKEN_URL = "http://169.254.169.254/latest/api/token"
 IMDS_TIMEOUT = 1
