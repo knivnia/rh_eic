@@ -34,6 +34,28 @@ def mock_urlopen(request, timeout=None):
     if 'active-keys' in url:
         return MockResponse('')
 
+    # Mock availability zone endpoint
+    if 'availability-zone' in url:
+        return MockResponse('us-east-1a')
+
+    # Mock domain endpoint
+    if 'services/domain' in url:
+        return MockResponse('amazonaws.com')
+
+    # Mock signer-cert endpoint
+    if 'signer-cert' in url:
+        return MockResponse('-----BEGIN CERTIFICATE-----\nMOCK_CERTIFICATE_DATA\n-----END CERTIFICATE-----')
+
+    # Mock signer-ocsp endpoint (list of staple paths)
+    if 'signer-ocsp/' in url and url.endswith('signer-ocsp/'):
+        return MockResponse('staple1 staple2')
+
+    # Mock individual OCSP staple files (base64 encoded)
+    if 'signer-ocsp/staple' in url:
+        import base64
+        mock_data = b'MOCK_OCSP_STAPLE_DATA'
+        return MockResponse(base64.b64encode(mock_data).decode('ascii'))
+
     return MockResponse('mock-data')
 
 
@@ -48,6 +70,45 @@ def mock_getpwnam(username):
         pw_dir = f'/home/{username}'
         pw_shell = '/bin/bash'
     return MockPwdEntry()
+
+
+def run_test_extract_region():
+    """Test extract_region_from_az function with various AZ formats"""
+    print(f"\n{'='*60}")
+    print("Testing extract_region_from_az function")
+    print('='*60)
+
+    import importlib
+    if 'eic_curl' in sys.modules:
+        importlib.reload(sys.modules['eic_curl'])
+        eic_curl = sys.modules['eic_curl']
+    else:
+        import eic_curl
+
+    test_cases = [
+        ("us-east-1a", "us-east-1"),
+        ("us-west-2b", "us-west-2"),
+        ("eu-west-1c", "eu-west-1"),
+        ("ap-southeast-2a", "ap-southeast-2"),
+        ("us-gov-west-1a", "us-gov-west-1"),
+        ("cn-north-1b", "cn-north-1"),
+    ]
+
+    all_passed = True
+    for az, expected_region in test_cases:
+        result = eic_curl.extract_region_from_az(az)
+        if result == expected_region:
+            print(f"✓ {az} -> {result}")
+        else:
+            print(f"✗ {az} -> {result} (expected {expected_region})")
+            all_passed = False
+
+    if all_passed:
+        print(f"\n✓ All region extraction tests passed!")
+        return True
+    else:
+        print(f"\n✗ Some region extraction tests failed!")
+        return False
 
 
 def run_test_invalid(instance_type):
@@ -262,6 +323,243 @@ def run_test_no_active_keys():
                                 return False
 
 
+def run_test_invalid_az():
+    """Run test with invalid availability zone format"""
+    print(f"\n{'='*60}")
+    print(f"Testing invalid AZ format (should exit 255)")
+    print('='*60)
+
+    def mock_urlopen_invalid_az(request, timeout=None):
+        """Mock urlopen that returns invalid AZ format"""
+        class MockResponse:
+            def __init__(self, data):
+                self.data = data
+            def read(self):
+                return self.data.encode('utf-8')
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+
+        url = request.get_full_url() if hasattr(request, 'get_full_url') else str(request)
+
+        if 'api/token' in url:
+            return MockResponse('mock-token-12345')
+        if 'instance-id' in url:
+            return MockResponse('i-1234567890abcdef0')
+        if 'active-keys' in url:
+            return MockResponse('')
+        if 'availability-zone' in url:
+            # Invalid format - should match ^([a-z]+-){2,3}[0-9][a-z]$
+            return MockResponse('INVALID-ZONE-123')
+        return MockResponse('mock-data')
+
+    def mock_isfile_nitro(path):
+        if 'hypervisor/uuid' in path:
+            return False
+        if 'board_asset_tag' in path:
+            return True
+        return False
+
+    def mock_open_nitro(path, mode='r'):
+        class MockFile:
+            def read(self):
+                if 'board_asset_tag' in path:
+                    return 'i-1234567890abcdef0'
+                return ''
+            def strip(self):
+                return self.read().strip()
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+        return MockFile()
+
+    with mock.patch('urllib.request.urlopen', side_effect=mock_urlopen_invalid_az):
+        with mock.patch('os.path.isfile', side_effect=mock_isfile_nitro):
+            with mock.patch('builtins.open', side_effect=mock_open_nitro):
+                with mock.patch('pwd.getpwnam', side_effect=mock_getpwnam):
+                    with mock.patch('sys.argv', ['eic_curl.py', 'testuser']):
+                        import importlib
+                        if 'eic_curl' in sys.modules:
+                            importlib.reload(sys.modules['eic_curl'])
+                            eic_curl = sys.modules['eic_curl']
+                        else:
+                            import eic_curl
+
+                        try:
+                            eic_curl.main()
+                            print(f"\n✗ Invalid AZ test should have exited with 255!")
+                            return False
+                        except SystemExit as e:
+                            if e.code == 255:
+                                print(f"\n✓ Invalid AZ test correctly exited (exit 255)")
+                                return True
+                            else:
+                                print(f"\n✗ Invalid AZ test failed with unexpected code: {e.code}")
+                                return False
+
+
+def run_test_invalid_domain():
+    """Run test with invalid domain (should exit 255)"""
+    print(f"\n{'='*60}")
+    print(f"Testing invalid domain (should exit 255)")
+    print('='*60)
+
+    def mock_urlopen_invalid_domain(request, timeout=None):
+        """Mock urlopen that returns invalid domain"""
+        class MockResponse:
+            def __init__(self, data):
+                self.data = data
+            def read(self):
+                return self.data.encode('utf-8')
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+
+        url = request.get_full_url() if hasattr(request, 'get_full_url') else str(request)
+
+        if 'api/token' in url:
+            return MockResponse('mock-token-12345')
+        if 'instance-id' in url:
+            return MockResponse('i-1234567890abcdef0')
+        if 'active-keys' in url:
+            return MockResponse('')
+        if 'availability-zone' in url:
+            return MockResponse('us-east-1a')
+        if 'services/domain' in url:
+            # Invalid domain - not in VALID_DOMAINS list
+            return MockResponse('invalid-domain.com')
+        return MockResponse('mock-data')
+
+    def mock_isfile_nitro(path):
+        if 'hypervisor/uuid' in path:
+            return False
+        if 'board_asset_tag' in path:
+            return True
+        return False
+
+    def mock_open_nitro(path, mode='r'):
+        class MockFile:
+            def read(self):
+                if 'board_asset_tag' in path:
+                    return 'i-1234567890abcdef0'
+                return ''
+            def strip(self):
+                return self.read().strip()
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+        return MockFile()
+
+    with mock.patch('urllib.request.urlopen', side_effect=mock_urlopen_invalid_domain):
+        with mock.patch('os.path.isfile', side_effect=mock_isfile_nitro):
+            with mock.patch('builtins.open', side_effect=mock_open_nitro):
+                with mock.patch('pwd.getpwnam', side_effect=mock_getpwnam):
+                    with mock.patch('sys.argv', ['eic_curl.py', 'testuser']):
+                        import importlib
+                        if 'eic_curl' in sys.modules:
+                            importlib.reload(sys.modules['eic_curl'])
+                            eic_curl = sys.modules['eic_curl']
+                        else:
+                            import eic_curl
+
+                        try:
+                            eic_curl.main()
+                            print(f"\n✗ Invalid domain test should have exited with 255!")
+                            return False
+                        except SystemExit as e:
+                            if e.code == 255:
+                                print(f"\n✓ Invalid domain test correctly exited (exit 255)")
+                                return True
+                            else:
+                                print(f"\n✗ Invalid domain test failed with unexpected code: {e.code}")
+                                return False
+
+
+def run_test_empty_cert():
+    """Run test when signer certificate is empty (should exit 1)"""
+    print(f"\n{'='*60}")
+    print(f"Testing empty signer certificate (should exit 1)")
+    print('='*60)
+
+    def mock_urlopen_empty_cert(request, timeout=None):
+        """Mock urlopen that returns empty certificate"""
+        class MockResponse:
+            def __init__(self, data):
+                self.data = data
+            def read(self):
+                return self.data.encode('utf-8')
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+
+        url = request.get_full_url() if hasattr(request, 'get_full_url') else str(request)
+
+        if 'api/token' in url:
+            return MockResponse('mock-token-12345')
+        if 'instance-id' in url:
+            return MockResponse('i-1234567890abcdef0')
+        if 'active-keys' in url:
+            return MockResponse('')
+        if 'availability-zone' in url:
+            return MockResponse('us-east-1a')
+        if 'services/domain' in url:
+            return MockResponse('amazonaws.com')
+        if 'signer-cert' in url:
+            # Empty certificate
+            return MockResponse('')
+        return MockResponse('mock-data')
+
+    def mock_isfile_nitro(path):
+        if 'hypervisor/uuid' in path:
+            return False
+        if 'board_asset_tag' in path:
+            return True
+        return False
+
+    def mock_open_nitro(path, mode='r'):
+        class MockFile:
+            def read(self):
+                if 'board_asset_tag' in path:
+                    return 'i-1234567890abcdef0'
+                return ''
+            def strip(self):
+                return self.read().strip()
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+        return MockFile()
+
+    with mock.patch('urllib.request.urlopen', side_effect=mock_urlopen_empty_cert):
+        with mock.patch('os.path.isfile', side_effect=mock_isfile_nitro):
+            with mock.patch('builtins.open', side_effect=mock_open_nitro):
+                with mock.patch('pwd.getpwnam', side_effect=mock_getpwnam):
+                    with mock.patch('sys.argv', ['eic_curl.py', 'testuser']):
+                        import importlib
+                        if 'eic_curl' in sys.modules:
+                            importlib.reload(sys.modules['eic_curl'])
+                            eic_curl = sys.modules['eic_curl']
+                        else:
+                            import eic_curl
+
+                        try:
+                            eic_curl.main()
+                            print(f"\n✗ Empty cert test should have exited with 1!")
+                            return False
+                        except SystemExit as e:
+                            if e.code == 1:
+                                print(f"\n✓ Empty cert test correctly exited (exit 1)")
+                                return True
+                            else:
+                                print(f"\n✗ Empty cert test failed with unexpected code: {e.code}")
+                                return False
+
+
 def run_test_no_files():
     """Run test when no EC2 verification files exist (not an EC2 instance)"""
     print(f"\n{'='*60}")
@@ -330,6 +628,10 @@ def run_test(instance_type):
                     return 'i-1234567890abcdef0'
                 return ''
 
+            def write(self, data):
+                # Mock write operation for OCSP staples
+                return len(data) if isinstance(data, (bytes, str)) else 0
+
             def strip(self):
                 return self.read().strip()
 
@@ -348,6 +650,10 @@ def run_test(instance_type):
                 if 'hypervisor/uuid' in path:
                     return 'ec2abcdef-1234-5678-90ab-cdef12345678'
                 return ''
+
+            def write(self, data):
+                # Mock write operation for OCSP staples
+                return len(data) if isinstance(data, (bytes, str)) else 0
 
             def strip(self):
                 return self.read().strip()
@@ -373,33 +679,34 @@ def run_test(instance_type):
         with mock.patch('os.path.isfile', side_effect=mock_isfile_func):
             with mock.patch('builtins.open', side_effect=mock_open_func):
                 with mock.patch('pwd.getpwnam', side_effect=mock_getpwnam):
-                    with mock.patch('sys.argv', ['eic_curl.py', 'testuser']):
-                        # Import fresh copy of module
-                        import importlib
-                        if 'eic_curl' in sys.modules:
-                            importlib.reload(sys.modules['eic_curl'])
-                            eic_curl = sys.modules['eic_curl']
-                        else:
-                            import eic_curl
-
-                        try:
-                            eic_curl.main()
-                            print(f"\n✓ {instance_type} test completed successfully!")
-                            return True
-                        except SystemExit as e:
-                            if e.code == 0:
-                                print(f"\n✓ {instance_type} test completed (exit code {e.code})")
-                                return True
+                    with mock.patch('os.chmod'):  # Mock chmod for OCSP staples
+                        with mock.patch('sys.argv', ['eic_curl.py', 'testuser']):
+                            # Import fresh copy of module
+                            import importlib
+                            if 'eic_curl' in sys.modules:
+                                importlib.reload(sys.modules['eic_curl'])
+                                eic_curl = sys.modules['eic_curl']
                             else:
-                                print(f"\n✗ {instance_type} test failed with exit code: {e.code}")
-                                return False
+                                import eic_curl
+
+                            try:
+                                eic_curl.main()
+                                print(f"\n✓ {instance_type} test completed successfully!")
+                                return True
+                            except SystemExit as e:
+                                if e.code == 0:
+                                    print(f"\n✓ {instance_type} test completed (exit code {e.code})")
+                                    return True
+                                else:
+                                    print(f"\n✗ {instance_type} test failed with exit code: {e.code}")
+                                    return False
 
 
 # Run tests for both instance types
 if len(sys.argv) > 1:
     # Allow running specific test
     test_type = sys.argv[1]
-    valid_tests = ["nitro", "xen", "nitro-invalid", "xen-invalid", "no-files", "user-not-exists", "no-active-keys"]
+    valid_tests = ["extract-region", "nitro", "xen", "nitro-invalid", "xen-invalid", "no-files", "user-not-exists", "no-active-keys", "invalid-az", "invalid-domain", "empty-cert"]
 
     if test_type.lower() not in valid_tests:
         print(f"Invalid test type: {test_type}")
@@ -408,7 +715,9 @@ if len(sys.argv) > 1:
 
     print(f"Running single test: {test_type}")
 
-    if test_type.lower() == "nitro":
+    if test_type.lower() == "extract-region":
+        result = run_test_extract_region()
+    elif test_type.lower() == "nitro":
         result = run_test("Nitro")
     elif test_type.lower() == "xen":
         result = run_test("Xen")
@@ -422,12 +731,19 @@ if len(sys.argv) > 1:
         result = run_test_user_not_exists()
     elif test_type.lower() == "no-active-keys":
         result = run_test_no_active_keys()
+    elif test_type.lower() == "invalid-az":
+        result = run_test_invalid_az()
+    elif test_type.lower() == "invalid-domain":
+        result = run_test_invalid_domain()
+    elif test_type.lower() == "empty-cert":
+        result = run_test_empty_cert()
 
     sys.exit(0 if result else 1)
 else:
     # Run all tests
     print("Running tests with mocked IMDS and EC2 instance files...")
 
+    extract_region_result = run_test_extract_region()
     nitro_result = run_test("Nitro")
     xen_result = run_test("Xen")
     nitro_invalid_result = run_test_invalid("Nitro")
@@ -435,11 +751,15 @@ else:
     no_files_result = run_test_no_files()
     user_not_exists_result = run_test_user_not_exists()
     no_active_keys_result = run_test_no_active_keys()
+    invalid_az_result = run_test_invalid_az()
+    invalid_domain_result = run_test_invalid_domain()
+    empty_cert_result = run_test_empty_cert()
 
     # Summary
     print(f"\n{'='*60}")
     print("Test Summary")
     print('='*60)
+    print(f"Extract region:    {'✓ PASSED' if extract_region_result else '✗ FAILED'}")
     print(f"Nitro valid:       {'✓ PASSED' if nitro_result else '✗ FAILED'}")
     print(f"Xen valid:         {'✓ PASSED' if xen_result else '✗ FAILED'}")
     print(f"Nitro invalid:     {'✓ PASSED' if nitro_invalid_result else '✗ FAILED'}")
@@ -447,9 +767,12 @@ else:
     print(f"No files:          {'✓ PASSED' if no_files_result else '✗ FAILED'}")
     print(f"User not exists:   {'✓ PASSED' if user_not_exists_result else '✗ FAILED'}")
     print(f"No active keys:    {'✓ PASSED' if no_active_keys_result else '✗ FAILED'}")
+    print(f"Invalid AZ:        {'✓ PASSED' if invalid_az_result else '✗ FAILED'}")
+    print(f"Invalid domain:    {'✓ PASSED' if invalid_domain_result else '✗ FAILED'}")
+    print(f"Empty cert:        {'✓ PASSED' if empty_cert_result else '✗ FAILED'}")
     print('='*60)
 
-    all_passed = all([nitro_result, xen_result, nitro_invalid_result, xen_invalid_result, no_files_result, user_not_exists_result, no_active_keys_result])
+    all_passed = all([extract_region_result, nitro_result, xen_result, nitro_invalid_result, xen_invalid_result, no_files_result, user_not_exists_result, no_active_keys_result, invalid_az_result, invalid_domain_result, empty_cert_result])
 
     if all_passed:
         print("\n✓ All tests passed!")
