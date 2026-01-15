@@ -77,8 +77,8 @@ def verify_ec2_instance(instance_id):
         # Xen instance
         print("Xen instance detected")
         try:
-            with open(hypervisor_uuid_path, 'r') as f:
-                uuid = f.read().strip()
+            with open(hypervisor_uuid_path, 'r') as file:
+                uuid = file.read().strip()
                 print(f"uuid: {uuid}")
             if uuid.startswith("ec2"):
                 return
@@ -92,8 +92,8 @@ def verify_ec2_instance(instance_id):
         # Nitro instance
         print("Nitro instance detected")
         try:
-            with open(board_asset_tag_path, 'r') as f:
-                board_asset_tag = f.read().strip()
+            with open(board_asset_tag_path, 'r') as file:
+                board_asset_tag = file.read().strip()
                 print(f"Board asset tag: {board_asset_tag}")
             if board_asset_tag == instance_id:
                 return
@@ -234,8 +234,8 @@ def fetch_ssh_keys(username, userpath, token):
         )
         with urlopen(request, timeout=IMDS_TIMEOUT) as response:
             keys_data = response.read().decode("utf-8")
-            with open(keys_file, 'w') as f:
-                f.write(keys_data)
+            with open(keys_file, 'w') as file:
+                file.write(keys_data)
             return keys_file
     except (URLError, HTTPError) as e:
         log_info(f"Failed to fetch SSH keys: {e}")
@@ -251,7 +251,7 @@ def call_parser(keys_file,
                 ocsp_path,
                 fingerprint=None):
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    parser_script = os.path.join(script_dir, 'eic_parse_authorized_keys.py')
+    parser_script = os.path.join(script_dir, 'eic_parse_authorised_keys.py')
     cmd = [
         'python3', parser_script,
         '-x', 'false',
@@ -326,7 +326,7 @@ def main():
     expected_signer, userpath, cert = fetch_signer_cert(region, domain, token)
     print(f"Signer: {expected_signer}")
     print(f"Userpath: {userpath}")
-    print(f"Cert: {cert}")
+    print(f"Cert: Fetched {len(cert)} bytes")
 
     log_info("Fetching OCSP staples")
     ocsp_path = fetch_ocsp_staples(userpath, token)
@@ -340,7 +340,7 @@ def main():
     ca_path = "/etc/ssl/certs"
     fingerprint = sys.argv[2] if len(sys.argv) > 2 else None
     call_parser(keys_file,
-                userpath, 
+                userpath,
                 cert,
                 instance_id,
                 expected_signer,
