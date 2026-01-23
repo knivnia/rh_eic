@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import atexit
 import base64
 import os
@@ -251,7 +252,7 @@ def call_parser(keys_file,
                 ocsp_path,
                 fingerprint=None):
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    parser_script = os.path.join(script_dir, 'eic_parse_authorised_keys.py')
+    parser_script = os.path.join(script_dir, 'eic_parse.py')
     cmd = [
         'python3', parser_script,
         '-x', 'false',
