@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Wrapper for eic_curl.py with timeout.
-Necessary for older versions of openssh where AuthorizedKeysCommand must be a filepath.
-"""
 
 import os
 import subprocess

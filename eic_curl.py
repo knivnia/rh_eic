@@ -123,7 +123,7 @@ def check_active_keys(username, token):
         log_info(f"HTTP error {e.code} while checking for active keys.")
         sys.exit(0)
     except URLError:
-        log_info("Failed to check for active keys")
+        log_info("Failed to check for active keys.")
         sys.exit(0)
 
 
@@ -137,11 +137,11 @@ def fetch_and_validate_az(token):
         with urlopen(request, timeout=IMDS_TIMEOUT) as response:
             zone = response.read().decode("utf-8").strip()
             if not re.match(r"^([a-z]+-){2,3}[0-9][a-z]$", zone):
-                log_info("Invalid availability zone format")
+                log_info("Invalid availability zone format.")
                 sys.exit(255)
             return zone
     except (URLError, HTTPError):
-        log_info("Failed to fetch availability zone")
+        log_info("Failed to fetch availability zone.")
         sys.exit(255)
 
 
@@ -166,7 +166,7 @@ def fetch_and_validate_domain(token):
                 sys.exit(255)
             return domain
     except (URLError, HTTPError):
-        log_info("Failed to fetch domain from IMDS")
+        log_info("Failed to fetch domain from IMDS.")
         sys.exit(255)
 
 
@@ -184,11 +184,11 @@ def fetch_signer_cert(region, domain, token):
         with urlopen(request, timeout=IMDS_TIMEOUT) as response:
             cert = response.read().decode("utf-8").strip()
             if not cert:
-                log_info("Failed to fetch the certificate")
+                log_info("Failed to fetch the certificate.")
                 sys.exit(1)
             return expected_signer, userpath, cert
     except (URLError, HTTPError) as e:
-        log_info(f"Failed to fetch the signer certificate: {e}")
+        log_info(f"Failed to fetch the signer certificate: {e}.")
         sys.exit(1)
 
 
@@ -202,7 +202,7 @@ def fetch_ocsp_staples(userpath, token):
         with urlopen(request, timeout=IMDS_TIMEOUT) as response:
             staples_paths = response.read().decode("utf-8").strip()
     except (URLError, HTTPError) as e:
-        log_info(f"Failed to fetch OCSP staple paths: {e}")
+        log_info(f"Failed to fetch OCSP staple paths: {e}.")
         sys.exit(1)
 
     ocsp_path = tempfile.mkdtemp(prefix='eic-ocsp-', dir=userpath)
@@ -220,7 +220,7 @@ def fetch_ocsp_staples(userpath, token):
                     file.write(decoded_data)
                 os.chmod(staple_file, 0o400)
         except (URLError, HTTPError) as e:
-            log_info(f"Failed to fetch OCSP staple {path}: {e}")
+            log_info(f"Failed to fetch OCSP staple {path}: {e}.")
             sys.exit(1)
     return ocsp_path
 
@@ -239,7 +239,7 @@ def fetch_ssh_keys(username, userpath, token):
                 file.write(keys_data)
             return keys_file
     except (URLError, HTTPError) as e:
-        log_info(f"Failed to fetch SSH keys: {e}")
+        log_info(f"Failed to fetch SSH keys: {e}.")
         sys.exit(1)
 
 
@@ -278,66 +278,66 @@ def main():
     # Set umask for temp file security
     os.umask(0o077)
 
-    log_info("Checking for username argument")
+    log_info("Checking for username argument.")
     if len(sys.argv) < 2:
         log_info("EC2 Instance Connect was invoked without a user.")
         sys.exit(1)
     username = sys.argv[1]
     print(f"Username: {username}")
 
-    log_info("Verifying username")
+    log_info("Verifying username.")
     if not check_user_exists(username):
         sys.exit(0)
 
-    log_info("Fetching token from IMDS")
+    log_info("Fetching token from IMDS.")
     token = fetch_token()
     print(f"Token: {token}")
 
-    log_info("Fetching instance ID")
+    log_info("Fetching instance ID.")
     instance_id = fetch_instance_id(f"{IMDS_URL}/instance-id/", token)
     print(f"Instance ID: {instance_id}")
 
-    log_info("Verifying instance ID")
+    log_info("Verifying instance ID.")
     if not verify_instance_id(instance_id):
-        log_info("Invalid instance ID")
+        log_info("Invalid instance ID.")
         sys.exit(0)
     print("Instance ID verified")
 
-    log_info("Verifying EC2 instance")
+    log_info("Verifying EC2 instance.")
     verify_ec2_instance(instance_id)
     print("Instance verified")
 
-    log_info("Checking active keys")
+    log_info("Checking active keys.")
     if check_active_keys(username, token):
         print("Active keys found")
-        log_info(f"Active keys found for user {username}")
+        log_info(f"Active keys found for user {username}.")
 
-    log_info("Validating the AZ")
+    log_info("Validating the AZ.")
     zone = fetch_and_validate_az(token)
     print(f"AZ: {zone}")
 
     region = extract_region_from_az(zone)
     print(f"Region: {region}")
 
-    log_info("Validating region and domain")
+    log_info("Validating region and domain.")
     domain = fetch_and_validate_domain(token)
     print(f"Domain: {domain}")
 
-    log_info("Fetching signer certificate")
+    log_info("Fetching signer certificate.")
     expected_signer, userpath, cert = fetch_signer_cert(region, domain, token)
     print(f"Signer: {expected_signer}")
     print(f"Userpath: {userpath}")
     print(f"Cert: Fetched {len(cert)} bytes")
 
-    log_info("Fetching OCSP staples")
+    log_info("Fetching OCSP staples.")
     ocsp_path = fetch_ocsp_staples(userpath, token)
     print(f"OCSP path: {ocsp_path}")
 
-    log_info("Fetching SSH keys")
+    log_info("Fetching SSH keys.")
     keys_file = fetch_ssh_keys(username, userpath, token)
     print(f"Keys file: {keys_file}")
 
-    log_info("Calling parsing script")
+    log_info("Calling parsing script.")
     ca_path = "/etc/ssl/certs"
     fingerprint = sys.argv[2] if len(sys.argv) > 2 else None
     call_parser(keys_file,

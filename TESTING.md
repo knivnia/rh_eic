@@ -90,6 +90,7 @@ Board asset tag: i-0b9438c1e51396080
 Instance verified
 LOG: Checking active keys
 Active keys found
+LOG: Active keys found for user ec2-user
 LOG: Validating the AZ
 AZ: us-east-1a
 Region: us-east-1
@@ -104,5 +105,22 @@ OCSP path: /dev/shm/eic-XXXXXX/eic-ocsp-XXXXXX
 LOG: Fetching SSH keys
 Keys file: /dev/shm/eic-XXXXXX/eic-keys
 LOG: Calling parsing script
-(Parser output will appear here)
+LOG: Parsing arguments.
+Arguments:
+is_debug: False
+keys_path: /dev/shm/eic-XXXXXX/eic-keys
+openssl: /usr/bin/openssl
+tmpdir: /dev/shm/eic-XXXXXX
+signer: -----BEGIN CERTIFICATE-----
+[Full certificate chain - 3 certificates]
+-----END CERTIFICATE-----
+current_instance_id: i-XXXXXXXXXXXXXXXXX
+expected_cn: managed-ssh-signer.REGION.amazonaws.com
+ca_path: /etc/ssl/certs
+ocsp_dir_path: /dev/shm/eic-XXXXXX/eic-ocsp-XXXXXX
+expected_key: None
+LOG: Verifying signer certificate.
+Certs paths: [PosixPath('/dev/shm/eic-XXXXXX/cert0.pem'), PosixPath('/dev/shm/eic-XXXXXX/cert1.pem'), PosixPath('/dev/shm/eic-XXXXXX/cert2.pem')]
+CA bundles dir: /dev/shm/eic-XXXXXX/eic-cert-XXXXXXXX
+CA trust file: /dev/shm/eic-XXXXXX/ca-trust.pem
 ```
