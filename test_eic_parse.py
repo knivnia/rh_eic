@@ -6,6 +6,7 @@ Tests argument parsing and other functions as they are implemented.
 """
 
 import unittest
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -17,7 +18,18 @@ from eic_parse import (
     build_ca_bundles_dir,
     build_ca_trust_chain,
     extract_cn,
-    extract_from_bundle
+    extract_from_bundle,
+    get_cert_hash,
+    get_cert_fingerprint,
+    get_cert_pubkey,
+    is_cert_trusted,
+    verify_ocsp,
+    verify_ocsp_chain,
+    verify_trust_chain,
+    get_ssh_key_fingerprint,
+    verify_key_signature,
+    parse_key_entries,
+    process_keys
 )
 import argparse
 
@@ -413,6 +425,325 @@ class TestBuildCATrustChain(unittest.TestCase):
         self.assertTrue(result.exists())
         content = result.read_text()
         self.assertIn("CERT1CONTENT", content)
+
+
+class TestGetCertHash(unittest.TestCase):
+    """Test the get_cert_hash function."""
+
+    def setUp(self):
+        """Create a temporary directory and certificate file."""
+        self.tmpdir = tempfile.mkdtemp()
+        self.cert_path = Path(self.tmpdir) / "test.pem"
+
+    def tearDown(self):
+        """Clean up temporary directory."""
+        import shutil
+        shutil.rmtree(self.tmpdir)
+
+    def test_get_cert_hash(self):
+        """Test getting certificate hash."""
+        import shutil as sh
+        import subprocess
+
+        if not sh.which("openssl"):
+            self.skipTest("openssl not available")
+
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", str(Path(self.tmpdir) / "key.pem"),
+            "-out", str(self.cert_path),
+            "-days", "1",
+            "-subj", "/CN=testCA"
+        ], capture_output=True, check=True)
+
+        hash_result = get_cert_hash("openssl", self.cert_path)
+        self.assertIsNotNone(hash_result)
+        self.assertTrue(len(hash_result) > 0)
+
+
+class TestGetCertFingerprint(unittest.TestCase):
+    """Test the get_cert_fingerprint function."""
+
+    def setUp(self):
+        """Create a temporary directory and certificate file."""
+        self.tmpdir = tempfile.mkdtemp()
+        self.cert_path = Path(self.tmpdir) / "test.pem"
+
+    def tearDown(self):
+        """Clean up temporary directory."""
+        import shutil
+        shutil.rmtree(self.tmpdir)
+
+    def test_get_cert_fingerprint(self):
+        """Test getting certificate fingerprint."""
+        import shutil as sh
+        import subprocess
+
+        if not sh.which("openssl"):
+            self.skipTest("openssl not available")
+
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", str(Path(self.tmpdir) / "key.pem"),
+            "-out", str(self.cert_path),
+            "-days", "1",
+            "-subj", "/CN=testCA"
+        ], capture_output=True, check=True)
+
+        fp = get_cert_fingerprint("openssl", self.cert_path)
+        self.assertIsNotNone(fp)
+        # SHA1 fingerprint without colons should be 40 hex chars
+        self.assertEqual(len(fp), 40)
+
+
+class TestGetCertPubkey(unittest.TestCase):
+    """Test the get_cert_pubkey function."""
+
+    def setUp(self):
+        """Create a temporary directory and certificate file."""
+        self.tmpdir = tempfile.mkdtemp()
+        self.cert_path = Path(self.tmpdir) / "test.pem"
+
+    def tearDown(self):
+        """Clean up temporary directory."""
+        import shutil
+        shutil.rmtree(self.tmpdir)
+
+    def test_get_cert_pubkey(self):
+        """Test getting certificate public key."""
+        import shutil as sh
+        import subprocess
+
+        if not sh.which("openssl"):
+            self.skipTest("openssl not available")
+
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", str(Path(self.tmpdir) / "key.pem"),
+            "-out", str(self.cert_path),
+            "-days", "1",
+            "-subj", "/CN=testCA"
+        ], capture_output=True, check=True)
+
+        pubkey = get_cert_pubkey("openssl", self.cert_path)
+        self.assertIsNotNone(pubkey)
+        self.assertIn("BEGIN PUBLIC KEY", pubkey)
+
+
+class TestIsCertTrusted(unittest.TestCase):
+    """Test the is_cert_trusted function."""
+
+    def setUp(self):
+        """Create a temporary directory and certificate files."""
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        """Clean up temporary directory."""
+        import shutil
+        shutil.rmtree(self.tmpdir)
+
+    def test_same_cert_is_trusted(self):
+        """Test that same certificate is trusted."""
+        import shutil as sh
+        import subprocess
+
+        if not sh.which("openssl"):
+            self.skipTest("openssl not available")
+
+        cert_path = Path(self.tmpdir) / "test.pem"
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", str(Path(self.tmpdir) / "key.pem"),
+            "-out", str(cert_path),
+            "-days", "1",
+            "-subj", "/CN=testCA"
+        ], capture_output=True, check=True)
+
+        # Same certificate should be trusted
+        self.assertTrue(is_cert_trusted("openssl", cert_path, cert_path))
+
+    def test_different_cert_not_trusted(self):
+        """Test that different certificate is not trusted."""
+        import shutil as sh
+        import subprocess
+
+        if not sh.which("openssl"):
+            self.skipTest("openssl not available")
+
+        cert1_path = Path(self.tmpdir) / "cert1.pem"
+        cert2_path = Path(self.tmpdir) / "cert2.pem"
+
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", str(Path(self.tmpdir) / "key1.pem"),
+            "-out", str(cert1_path),
+            "-days", "1",
+            "-subj", "/CN=testCA1"
+        ], capture_output=True, check=True)
+
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", str(Path(self.tmpdir) / "key2.pem"),
+            "-out", str(cert2_path),
+            "-days", "1",
+            "-subj", "/CN=testCA2"
+        ], capture_output=True, check=True)
+
+        # Different certificates should not be trusted
+        self.assertFalse(is_cert_trusted("openssl", cert1_path, cert2_path))
+
+
+class TestVerifyTrustChain(unittest.TestCase):
+    """Test the verify_trust_chain function."""
+
+    def test_placeholder(self):
+        """Placeholder test for verify_trust_chain."""
+        # This function requires valid cert chains and CA setup
+        # Skipping detailed test for now
+        pass
+
+
+class TestVerifyOcsp(unittest.TestCase):
+    """Test the verify_ocsp function."""
+
+    def test_placeholder(self):
+        """Placeholder test for verify_ocsp."""
+        # This function requires OCSP responses which are complex to mock
+        # Skipping detailed test for now
+        pass
+
+
+class TestVerifyOcspChain(unittest.TestCase):
+    """Test the verify_ocsp_chain function."""
+
+    def test_placeholder(self):
+        """Placeholder test for verify_ocsp_chain."""
+        # This function requires OCSP responses which are complex to mock
+        # Skipping detailed test for now
+        pass
+
+
+class TestGetSshKeyFingerprint(unittest.TestCase):
+    """Test the get_ssh_key_fingerprint function."""
+
+    def setUp(self):
+        """Create a temporary directory."""
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        """Clean up temporary directory."""
+        import shutil
+        shutil.rmtree(self.tmpdir)
+
+    def test_valid_ssh_key(self):
+        """Test getting fingerprint from a valid SSH key."""
+        import shutil as sh
+        import subprocess
+
+        if not sh.which("ssh-keygen"):
+            self.skipTest("ssh-keygen not available")
+
+        # Generate a test SSH key
+        key_file = Path(self.tmpdir) / "test_key"
+        subprocess.run(
+            ["ssh-keygen", "-t", "rsa", "-b", "2048", "-f", str(key_file), "-N", ""],
+            capture_output=True,
+            check=True
+        )
+
+        # Read the public key
+        with open(f"{key_file}.pub", "r") as f:
+            public_key = f.read().strip()
+
+        # Get fingerprint
+        fingerprint = get_ssh_key_fingerprint(public_key, self.tmpdir)
+
+        self.assertIsNotNone(fingerprint)
+        self.assertTrue(len(fingerprint) > 0)
+        # SHA256 fingerprints start with specific format
+        self.assertTrue(":" in fingerprint or fingerprint.startswith("SHA256:"))
+
+    def test_invalid_key(self):
+        """Test that invalid key returns None."""
+        result = get_ssh_key_fingerprint("invalid key data", self.tmpdir)
+        self.assertIsNone(result)
+
+
+class TestParseKeyEntries(unittest.TestCase):
+    """Test the parse_key_entries function."""
+
+    def test_parse_single_entry(self):
+        """Test parsing a single valid key entry."""
+        lines = [
+            "#Timestamp=1234567890\n",
+            "#Instance=i-1234567890abcdef0\n",
+            "#Caller=arn:aws:iam::123456789012:user/test\n",
+            "#Request=req-12345\n",
+            "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ test@example.com\n",
+            "base64signature==\n",
+            "\n"
+        ]
+
+        entries = list(parse_key_entries(lines))
+
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["key"], "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ test@example.com")
+        self.assertEqual(entries[0]["signature"], "base64signature==")
+        self.assertEqual(entries[0]["metadata"]["timestamp"], "1234567890")
+        self.assertEqual(entries[0]["metadata"]["instance_id"], "i-1234567890abcdef0")
+        self.assertEqual(entries[0]["metadata"]["caller"], "arn:aws:iam::123456789012:user/test")
+        self.assertEqual(entries[0]["metadata"]["request"], "req-12345")
+
+    def test_parse_multiple_entries(self):
+        """Test parsing multiple key entries."""
+        lines = [
+            "#Timestamp=1111111111\n",
+            "#Instance=i-aaaaaaaaaaaaa\n",
+            "ssh-rsa AAAA1111 test1\n",
+            "sig1==\n",
+            "\n",
+            "#Timestamp=2222222222\n",
+            "#Instance=i-bbbbbbbbbbbbb\n",
+            "ssh-rsa AAAA2222 test2\n",
+            "sig2==\n",
+        ]
+
+        entries = list(parse_key_entries(lines))
+
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0]["metadata"]["timestamp"], "1111111111")
+        self.assertEqual(entries[1]["metadata"]["timestamp"], "2222222222")
+
+    def test_skip_invalid_entry(self):
+        """Test that invalid entries are skipped."""
+        lines = [
+            "#Timestamp=1234567890\n",
+            "#Instance=i-invalid\n",
+            "not-an-ssh-key\n",
+            "signature\n",
+            "\n",
+            "#Timestamp=9876543210\n",
+            "#Instance=i-valid\n",
+            "ssh-rsa AAAVALID test\n",
+            "validsig==\n",
+        ]
+
+        entries = list(parse_key_entries(lines))
+
+        # Should only get the valid entry
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["metadata"]["timestamp"], "9876543210")
+
+
+class TestProcessKeys(unittest.TestCase):
+    """Test the process_keys function."""
+
+    def test_placeholder(self):
+        """Placeholder test for process_keys."""
+        # This is an integration test requiring valid certificates,
+        # signatures, and key files - complex to set up
+        # Skipping detailed test for now
+        pass
 
 
 if __name__ == '__main__':
