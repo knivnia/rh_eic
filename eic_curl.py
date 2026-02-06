@@ -25,7 +25,6 @@ VALID_DOMAINS = ["amazonaws.com",
 
 
 def log_info(message):
-    print(f"LOG: {message}")
     syslog.syslog(syslog.LOG_AUTHPRIV | syslog.LOG_INFO, message)
 
 
@@ -76,11 +75,9 @@ def verify_ec2_instance(instance_id):
 
     if os.path.isfile(hypervisor_uuid_path):
         # Xen instance
-        print("Xen instance detected")
         try:
             with open(hypervisor_uuid_path, 'r') as file:
                 uuid = file.read().strip()
-                print(f"uuid: {uuid}")
             if uuid.startswith("ec2"):
                 return
             else:
@@ -91,11 +88,9 @@ def verify_ec2_instance(instance_id):
             sys.exit(0)
     elif os.path.isfile(board_asset_tag_path):
         # Nitro instance
-        print("Nitro instance detected")
         try:
             with open(board_asset_tag_path, 'r') as file:
                 board_asset_tag = file.read().strip()
-                print(f"Board asset tag: {board_asset_tag}")
             if board_asset_tag == instance_id:
                 return
             else:
@@ -270,7 +265,6 @@ def call_parser(keys_file,
         cmd.extend(['-f', fingerprint])
 
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    print(result.stdout, end='')
     sys.exit(result.returncode)
 
 
@@ -283,7 +277,6 @@ def main():
         log_info("EC2 Instance Connect was invoked without a user.")
         sys.exit(1)
     username = sys.argv[1]
-    print(f"Username: {username}")
 
     log_info("Verifying username.")
     if not check_user_exists(username):
@@ -291,51 +284,38 @@ def main():
 
     log_info("Fetching token from IMDS.")
     token = fetch_token()
-    print(f"Token: {token}")
 
     log_info("Fetching instance ID.")
     instance_id = fetch_instance_id(f"{IMDS_URL}/instance-id/", token)
-    print(f"Instance ID: {instance_id}")
 
     log_info("Verifying instance ID.")
     if not verify_instance_id(instance_id):
         log_info("Invalid instance ID.")
         sys.exit(0)
-    print("Instance ID verified")
 
     log_info("Verifying EC2 instance.")
     verify_ec2_instance(instance_id)
-    print("Instance verified")
 
     log_info("Checking active keys.")
     if check_active_keys(username, token):
-        print("Active keys found")
         log_info(f"Active keys found for user {username}.")
 
     log_info("Validating the AZ.")
     zone = fetch_and_validate_az(token)
-    print(f"AZ: {zone}")
 
     region = extract_region_from_az(zone)
-    print(f"Region: {region}")
 
     log_info("Validating region and domain.")
     domain = fetch_and_validate_domain(token)
-    print(f"Domain: {domain}")
 
     log_info("Fetching signer certificate.")
     expected_signer, userpath, cert = fetch_signer_cert(region, domain, token)
-    print(f"Signer: {expected_signer}")
-    print(f"Userpath: {userpath}")
-    print(f"Cert: Fetched {len(cert)} bytes")
 
     log_info("Fetching OCSP staples.")
     ocsp_path = fetch_ocsp_staples(userpath, token)
-    print(f"OCSP path: {ocsp_path}")
 
     log_info("Fetching SSH keys.")
     keys_file = fetch_ssh_keys(username, userpath, token)
-    print(f"Keys file: {keys_file}")
 
     log_info("Calling parsing script.")
     ca_path = "/etc/ssl/certs"

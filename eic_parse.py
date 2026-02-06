@@ -15,7 +15,6 @@ import time
 
 
 def log_info(message):
-    print(f"LOG: {message}")
     syslog.syslog(syslog.LOG_AUTHPRIV | syslog.LOG_INFO, message)
 
 
@@ -400,15 +399,11 @@ def main():
 
     log_info("Parsing arguments.")
     args = parse_arguments()
-    print("Arguments:")
-    for arg, value in vars(args).items():
-        print(f"{arg}: {value}")
 
     log_info("Verifying signer certificate.")
 
     log_info("Splitting the cert chain.")
     cert_files = split_cert_chain(args.signer, args.tmpdir)
-    print(f"Certs paths: {cert_files}")
 
     log_info("Building CA bundles dir.")
     ca_bundles_dir = build_ca_bundles_dir(
@@ -417,7 +412,6 @@ def main():
         args.ca_path,
         args.tmpdir
     )
-    print(f"CA bundles dir: {ca_bundles_dir}")
 
     log_info("Building CA trust chain.")
     ca_trust_file = build_ca_trust_chain(
@@ -427,14 +421,12 @@ def main():
         args.tmpdir,
         ca_bundles_dir
     )
-    print(f"CA trust file: {ca_trust_file}")
 
     log_info("Verifying the CN.")
     signer_cn = extract_cn(args.openssl, cert_files[0])
     if signer_cn != args.expected_cn:
         log_info("EC2 Instance Connect encountered an unrecognised signer certificate. No keys have been trusted.")
         sys.exit(1)
-    print("Signer CN verified")
 
     log_info("Verifying the trust chain.")
     verify_trust_chain(
@@ -443,7 +435,6 @@ def main():
         args.ca_path,
         ca_trust_file
     )
-    print("Trust chain verified")
 
     log_info("Verifying no certs have been revoked.")
     verify_ocsp_chain(
@@ -452,7 +443,6 @@ def main():
         ca_bundles_dir,
         args.ocsp_dir_path
     )
-    print("OCSP staples verified")
 
     log_info("Removing the CA bundles dir.")
     shutil.rmtree(ca_bundles_dir, ignore_errors=True)
@@ -464,7 +454,6 @@ def main():
         sys.exit(1)
     pubkey_file = Path(args.tmpdir) / "pubkey"
     pubkey_file.write_text(pubkey)
-    print(f"Public key extracted: {pubkey}")
 
     if args.expected_key:
         log_info(f"Querying EC2 Instance Connect keys for matching fingerprint: {args.expected_key}")
