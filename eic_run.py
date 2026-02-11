@@ -15,7 +15,7 @@ if __name__ == "__main__":
     command = [sys.executable, script] + sys.argv[1:]
 
     try:
-        result = subprocess.run(command, timeout=5)
+        result = subprocess.run(command, timeout=15)
         sys.exit(result.returncode)
     except subprocess.TimeoutExpired:
         sys.exit(0)

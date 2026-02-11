@@ -16,7 +16,7 @@ from urllib.request import Request, urlopen
 
 IMDS_URL = "http://169.254.169.254/latest/meta-data"
 IMDS_TOKEN_URL = "http://169.254.169.254/latest/api/token"
-IMDS_TIMEOUT = 1
+IMDS_TIMEOUT = 3
 TOKEN_HEADER = "X-aws-ec2-metadata-token"
 VALID_DOMAINS = ["amazonaws.com",
                  "amazonaws.com.cn",

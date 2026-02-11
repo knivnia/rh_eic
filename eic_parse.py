@@ -246,16 +246,25 @@ def get_ssh_key_fingerprint(key, tmpdir):
     key_file = Path(tmpdir) / "temp_key"
     key_file.write_text(f"{key}\n")
 
-    result = subprocess.run(
-        ["ssh-keygen", "-lf", str(key_file)],
-        capture_output=True,
-        text=True,
-        check=False
-    )
+    log_info(f"DEBUG: Running ssh-keygen on {key_file}")
+    try:
+        result = subprocess.run(
+            ["ssh-keygen", "-lf", str(key_file)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=2
+        )
+        log_info(f"DEBUG: ssh-keygen completed, returncode={result.returncode}")
+    except subprocess.TimeoutExpired:
+        log_info("DEBUG: ssh-keygen timed out")
+        key_file.unlink(missing_ok=True)
+        return None
 
     key_file.unlink(missing_ok=True)
 
     if result.returncode != 0:
+        log_info(f"DEBUG: ssh-keygen failed: {result.stderr}")
         return None
 
     parts = result.stdout.split()
@@ -360,25 +369,35 @@ def process_keys(keys_path, current_instance_id, cur_time,
     valid_keys = []
 
     for entry in parse_key_entries(lines):
+        log_info("DEBUG: Processing entry")
         try:
             timestamp = int(entry["metadata"].get("timestamp", "0"))
+            log_info(f"DEBUG: timestamp={timestamp}, cur_time={cur_time}")
             if timestamp == 0 or timestamp < cur_time:
+                log_info("DEBUG: Skipping expired key")
                 continue
         except ValueError:
+            log_info("DEBUG: Invalid timestamp")
             continue
 
         if entry["metadata"].get("instance_id", "") != current_instance_id:
+            log_info("DEBUG: Instance ID mismatch")
             continue
 
+        log_info("DEBUG: Getting fingerprint")
         fingerprint = get_ssh_key_fingerprint(entry["key"], tmpdir)
+        log_info(f"DEBUG: fingerprint={fingerprint}")
         if not fingerprint:
+            log_info("DEBUG: Failed to get fingerprint")
             continue
 
         if expected_key and fingerprint != expected_key:
+            log_info("DEBUG: Fingerprint mismatch")
             continue
 
         if not verify_key_signature(openssl_cmd, entry["signed_data"],
                                     entry["signature"], pubkey_file, tmpdir):
+            log_info("DEBUG: Signature verification failed")
             continue
 
         msg = f"Providing ssh key from EC2 Instance Connect with fingerprint: {fingerprint}."
