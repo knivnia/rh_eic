@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 
-"""
-Unit tests for eic_parse.py
-Tests argument parsing and other functions as they are implemented.
-"""
-
-import unittest
+import argparse
+import base64
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
+import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch, mock_open
+
 from eic_parse import (
     str_to_bool,
     parse_arguments,
@@ -29,9 +30,9 @@ from eic_parse import (
     get_ssh_key_fingerprint,
     verify_key_signature,
     parse_key_entries,
-    process_keys
+    process_keys,
+    main,
 )
-import argparse
 
 
 class TestStrToBool(unittest.TestCase):
@@ -172,7 +173,6 @@ class TestSplitCertChain(unittest.TestCase):
 
     def tearDown(self):
         """Clean up temporary directory."""
-        import shutil
         shutil.rmtree(self.tmpdir)
 
     def test_single_certificate(self):
@@ -259,7 +259,6 @@ class TestExtractCN(unittest.TestCase):
 
     def tearDown(self):
         """Clean up temporary directory."""
-        import shutil
         shutil.rmtree(self.tmpdir)
 
     def test_extract_cn_success(self):
@@ -296,7 +295,6 @@ class TestExtractFromBundle(unittest.TestCase):
 
     def tearDown(self):
         """Clean up temporary directory."""
-        import shutil
         shutil.rmtree(self.tmpdir)
 
     def test_extract_from_bundle(self):
@@ -346,7 +344,6 @@ class TestBuildCABundlesDir(unittest.TestCase):
 
     def tearDown(self):
         """Clean up temporary directory."""
-        import shutil
         shutil.rmtree(self.tmpdir)
 
     def test_empty_cert_files(self):
@@ -387,7 +384,6 @@ class TestBuildCATrustChain(unittest.TestCase):
 
     def tearDown(self):
         """Clean up temporary directory."""
-        import shutil
         shutil.rmtree(self.tmpdir)
 
     def test_build_ca_trust_chain(self):
@@ -437,7 +433,6 @@ class TestGetCertHash(unittest.TestCase):
 
     def tearDown(self):
         """Clean up temporary directory."""
-        import shutil
         shutil.rmtree(self.tmpdir)
 
     def test_get_cert_hash(self):
@@ -471,7 +466,6 @@ class TestGetCertFingerprint(unittest.TestCase):
 
     def tearDown(self):
         """Clean up temporary directory."""
-        import shutil
         shutil.rmtree(self.tmpdir)
 
     def test_get_cert_fingerprint(self):
@@ -506,7 +500,6 @@ class TestGetCertPubkey(unittest.TestCase):
 
     def tearDown(self):
         """Clean up temporary directory."""
-        import shutil
         shutil.rmtree(self.tmpdir)
 
     def test_get_cert_pubkey(self):
@@ -539,7 +532,6 @@ class TestIsCertTrusted(unittest.TestCase):
 
     def tearDown(self):
         """Clean up temporary directory."""
-        import shutil
         shutil.rmtree(self.tmpdir)
 
     def test_same_cert_is_trusted(self):
@@ -596,31 +588,310 @@ class TestIsCertTrusted(unittest.TestCase):
 class TestVerifyTrustChain(unittest.TestCase):
     """Test the verify_trust_chain function."""
 
-    def test_placeholder(self):
-        """Placeholder test for verify_trust_chain."""
-        # This function requires valid cert chains and CA setup
-        # Skipping detailed test for now
-        pass
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    @patch('syslog.syslog')
+    @patch('subprocess.run')
+    def test_valid_chain(self, mock_run, _mock_syslog):
+        """verify_trust_chain should pass when openssl verify succeeds."""
+        cert_file = Path(self.tmpdir) / "cert.pem"
+        ca_trust = Path(self.tmpdir) / "ca-trust.pem"
+        cert_file.write_text("CERT")
+        ca_trust.write_text("CA")
+
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=f"{cert_file}: OK"
+        )
+        # Should not raise
+        verify_trust_chain("openssl", cert_file, "/etc/ssl/certs", ca_trust)
+        mock_run.assert_called_once()
+
+    @patch('syslog.syslog')
+    @patch('subprocess.run')
+    def test_invalid_chain_exits_1(self, mock_run, _mock_syslog):
+        """verify_trust_chain should exit 1 on verification failure."""
+        cert_file = Path(self.tmpdir) / "cert.pem"
+        ca_trust = Path(self.tmpdir) / "ca-trust.pem"
+        cert_file.write_text("CERT")
+        ca_trust.write_text("CA")
+
+        mock_run.return_value = MagicMock(
+            returncode=2,
+            stdout="error 20 at 0 depth"
+        )
+        with self.assertRaises(SystemExit) as ctx:
+            verify_trust_chain("openssl", cert_file, "/etc/ssl/certs",
+                               ca_trust)
+        self.assertEqual(ctx.exception.code, 1)
+
+    @patch('syslog.syslog')
+    @patch('subprocess.run')
+    def test_wrong_stdout_exits_1(self, mock_run, _mock_syslog):
+        """Exit 1 even if returncode is 0 but stdout is unexpected."""
+        cert_file = Path(self.tmpdir) / "cert.pem"
+        ca_trust = Path(self.tmpdir) / "ca-trust.pem"
+        cert_file.write_text("CERT")
+        ca_trust.write_text("CA")
+
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="some garbage"
+        )
+        with self.assertRaises(SystemExit) as ctx:
+            verify_trust_chain("openssl", cert_file, "/etc/ssl/certs",
+                               ca_trust)
+        self.assertEqual(ctx.exception.code, 1)
+
+    @patch('syslog.syslog')
+    @patch('subprocess.run')
+    def test_uses_capath_for_directory(self, mock_run, _mock_syslog):
+        """When ca_path is a directory, -CApath should be used."""
+        cert_file = Path(self.tmpdir) / "cert.pem"
+        ca_trust = Path(self.tmpdir) / "ca-trust.pem"
+        cert_file.write_text("CERT")
+        ca_trust.write_text("CA")
+
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=f"{cert_file}: OK"
+        )
+        # self.tmpdir is a real directory
+        verify_trust_chain("openssl", cert_file, self.tmpdir, ca_trust)
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("-CApath", cmd)
+
+    @patch('syslog.syslog')
+    @patch('subprocess.run')
+    def test_no_capath_for_file(self, mock_run, _mock_syslog):
+        """When ca_path is a file, only -CAfile should be used."""
+        cert_file = Path(self.tmpdir) / "cert.pem"
+        ca_trust = Path(self.tmpdir) / "ca-trust.pem"
+        ca_bundle = Path(self.tmpdir) / "ca-bundle.crt"
+        cert_file.write_text("CERT")
+        ca_trust.write_text("CA")
+        ca_bundle.write_text("BUNDLE")
+
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=f"{cert_file}: OK"
+        )
+        verify_trust_chain("openssl", cert_file, str(ca_bundle), ca_trust)
+        cmd = mock_run.call_args[0][0]
+        self.assertNotIn("-CApath", cmd)
+        self.assertIn("-CAfile", cmd)
 
 
 class TestVerifyOcsp(unittest.TestCase):
     """Test the verify_ocsp function."""
 
-    def test_placeholder(self):
-        """Placeholder test for verify_ocsp."""
-        # This function requires OCSP responses which are complex to mock
-        # Skipping detailed test for now
-        pass
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    @patch('syslog.syslog')
+    @patch('subprocess.run')
+    def test_good_response(self, mock_run, _mock_syslog):
+        """OCSP check passes when openssl returns 'good'."""
+        cert = Path(self.tmpdir) / "cert.pem"
+        issuer = Path(self.tmpdir) / "issuer.pem"
+        ocsp_dir = Path(self.tmpdir) / "ocsp"
+        ocsp_dir.mkdir()
+        cert.write_text("CERT")
+        issuer.write_text("ISSUER")
+
+        # get_cert_fingerprint and extract_cn are called internally --
+        # mock subprocess.run to handle both openssl calls
+        call_count = [0]
+        def run_side_effect(cmd, **kwargs):
+            call_count[0] += 1
+            if 'x509' in cmd and '-subject' in cmd:
+                return MagicMock(returncode=0, stdout="subject=CN = testCN")
+            if 'x509' in cmd and '-fingerprint' in cmd:
+                fp = "AABB" * 10  # 40 hex chars
+                return MagicMock(
+                    returncode=0,
+                    stdout=f"SHA1 Fingerprint={fp}")
+            if 'ocsp' in cmd:
+                return MagicMock(
+                    returncode=0,
+                    stdout=f"{cert}: good")
+            return MagicMock(returncode=0, stdout="")
+
+        mock_run.side_effect = run_side_effect
+
+        # Create the OCSP response file named by fingerprint
+        fp = "AABB" * 10
+        (ocsp_dir / fp).write_bytes(b"OCSP_RESPONSE")
+
+        verify_ocsp("openssl", cert, issuer, ocsp_dir)
+
+    @patch('syslog.syslog')
+    @patch('subprocess.run')
+    def test_revoked_exits_1(self, mock_run, _mock_syslog):
+        """OCSP check should exit 1 when cert is revoked."""
+        cert = Path(self.tmpdir) / "cert.pem"
+        issuer = Path(self.tmpdir) / "issuer.pem"
+        ocsp_dir = Path(self.tmpdir) / "ocsp"
+        ocsp_dir.mkdir()
+        cert.write_text("CERT")
+        issuer.write_text("ISSUER")
+
+        def run_side_effect(cmd, **kwargs):
+            if 'x509' in cmd and '-subject' in cmd:
+                return MagicMock(returncode=0, stdout="subject=CN = testCN")
+            if 'x509' in cmd and '-fingerprint' in cmd:
+                fp = "AABB" * 10
+                return MagicMock(
+                    returncode=0,
+                    stdout=f"SHA1 Fingerprint={fp}")
+            if 'ocsp' in cmd:
+                return MagicMock(
+                    returncode=1,
+                    stdout=f"{cert}: revoked")
+            return MagicMock(returncode=0, stdout="")
+
+        mock_run.side_effect = run_side_effect
+        fp = "AABB" * 10
+        (ocsp_dir / fp).write_bytes(b"OCSP_RESPONSE")
+
+        with self.assertRaises(SystemExit) as ctx:
+            verify_ocsp("openssl", cert, issuer, ocsp_dir)
+        self.assertEqual(ctx.exception.code, 1)
 
 
 class TestVerifyOcspChain(unittest.TestCase):
     """Test the verify_ocsp_chain function."""
 
-    def test_placeholder(self):
-        """Placeholder test for verify_ocsp_chain."""
-        # This function requires OCSP responses which are complex to mock
-        # Skipping detailed test for now
-        pass
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    @patch('syslog.syslog')
+    @patch('eic_parse.verify_ocsp')
+    @patch('eic_parse.is_cert_trusted', return_value=False)
+    @patch('eic_parse.extract_cn', return_value="SomeCN")
+    def test_iterates_chain(self, _mock_cn, _mock_trusted,
+                            mock_verify, _mock_syslog):
+        """Should call verify_ocsp for each cert pair in the chain."""
+        cert0 = Path(self.tmpdir) / "cert0.pem"
+        cert1 = Path(self.tmpdir) / "cert1.pem"
+        cert2 = Path(self.tmpdir) / "cert2.pem"
+        for c in (cert0, cert1, cert2):
+            c.write_text("CERT")
+
+        ca_bundles = Path(self.tmpdir) / "bundles"
+        ca_bundles.mkdir()
+        ocsp_dir = Path(self.tmpdir) / "ocsp"
+        ocsp_dir.mkdir()
+
+        verify_ocsp_chain("openssl", [cert0, cert1, cert2],
+                          ca_bundles, ocsp_dir)
+        # Should verify cert0 against cert1, then cert1 against cert2
+        self.assertEqual(mock_verify.call_count, 2)
+
+    @patch('syslog.syslog')
+    @patch('eic_parse.verify_ocsp')
+    @patch('eic_parse.is_cert_trusted', return_value=True)
+    @patch('eic_parse.extract_cn', return_value="TrustedCN")
+    def test_stops_at_trusted_cert(self, _mock_cn, _mock_trusted,
+                                   mock_verify, _mock_syslog):
+        """Should stop verifying when a trusted cert is found."""
+        cert0 = Path(self.tmpdir) / "cert0.pem"
+        cert1 = Path(self.tmpdir) / "cert1.pem"
+        cert2 = Path(self.tmpdir) / "cert2.pem"
+        for c in (cert0, cert1, cert2):
+            c.write_text("CERT")
+
+        ca_bundles = Path(self.tmpdir) / "bundles"
+        ca_bundles.mkdir()
+        # Create a matching trusted cert file
+        (ca_bundles / "TrustedCN").write_text("TRUSTED")
+        ocsp_dir = Path(self.tmpdir) / "ocsp"
+        ocsp_dir.mkdir()
+
+        verify_ocsp_chain("openssl", [cert0, cert1, cert2],
+                          ca_bundles, ocsp_dir)
+        # Should stop at cert0 because it's trusted -- no OCSP calls
+        mock_verify.assert_not_called()
+
+
+class TestVerifyKeySignature(unittest.TestCase):
+    """Test the verify_key_signature function."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    @patch('syslog.syslog')
+    @patch('subprocess.run')
+    def test_valid_signature(self, mock_run, _mock_syslog):
+        """Returns True when openssl dgst verifies successfully."""
+        pubkey_file = Path(self.tmpdir) / "pubkey.pem"
+        pubkey_file.write_text("PUBKEY")
+
+        sig_b64 = base64.b64encode(b"SIGNATURE").decode()
+        mock_run.return_value = MagicMock(returncode=0)
+
+        result = verify_key_signature(
+            "openssl", "signed data here", sig_b64,
+            pubkey_file, self.tmpdir)
+        self.assertTrue(result)
+
+    @patch('syslog.syslog')
+    @patch('subprocess.run')
+    def test_invalid_signature(self, mock_run, _mock_syslog):
+        """Returns False when openssl dgst fails."""
+        pubkey_file = Path(self.tmpdir) / "pubkey.pem"
+        pubkey_file.write_text("PUBKEY")
+
+        sig_b64 = base64.b64encode(b"BADSIG").decode()
+        mock_run.return_value = MagicMock(returncode=1)
+
+        result = verify_key_signature(
+            "openssl", "signed data", sig_b64,
+            pubkey_file, self.tmpdir)
+        self.assertFalse(result)
+
+    @patch('syslog.syslog')
+    def test_invalid_base64_returns_false(self, _mock_syslog):
+        """Returns False when base64 decoding fails."""
+        pubkey_file = Path(self.tmpdir) / "pubkey.pem"
+        pubkey_file.write_text("PUBKEY")
+
+        result = verify_key_signature(
+            "openssl", "data", "NOT-VALID-BASE64!!!",
+            pubkey_file, self.tmpdir)
+        self.assertFalse(result)
+
+    @patch('syslog.syslog')
+    @patch('subprocess.run')
+    def test_cleans_up_temp_files(self, mock_run, _mock_syslog):
+        """Temp files should be cleaned up after verification."""
+        pubkey_file = Path(self.tmpdir) / "pubkey.pem"
+        pubkey_file.write_text("PUBKEY")
+
+        sig_b64 = base64.b64encode(b"SIG").decode()
+        mock_run.return_value = MagicMock(returncode=0)
+
+        verify_key_signature(
+            "openssl", "data", sig_b64,
+            pubkey_file, self.tmpdir)
+
+        signed_data_file = Path(self.tmpdir) / "signed_data"
+        sig_file = Path(self.tmpdir) / "decoded_sig"
+        self.assertFalse(signed_data_file.exists())
+        self.assertFalse(sig_file.exists())
 
 
 class TestGetSshKeyFingerprint(unittest.TestCase):
@@ -632,36 +903,30 @@ class TestGetSshKeyFingerprint(unittest.TestCase):
 
     def tearDown(self):
         """Clean up temporary directory."""
-        import shutil
         shutil.rmtree(self.tmpdir)
 
     def test_valid_ssh_key(self):
         """Test getting fingerprint from a valid SSH key."""
-        import shutil as sh
-        import subprocess
-
-        if not sh.which("ssh-keygen"):
+        if not shutil.which("ssh-keygen"):
             self.skipTest("ssh-keygen not available")
 
-        # Generate a test SSH key
         key_file = Path(self.tmpdir) / "test_key"
         subprocess.run(
-            ["ssh-keygen", "-t", "rsa", "-b", "2048", "-f", str(key_file), "-N", ""],
+            ["ssh-keygen", "-t", "rsa", "-b", "2048",
+             "-f", str(key_file), "-N", ""],
             capture_output=True,
             check=True
         )
 
-        # Read the public key
         with open(f"{key_file}.pub", "r") as f:
             public_key = f.read().strip()
 
-        # Get fingerprint
         fingerprint = get_ssh_key_fingerprint(public_key, self.tmpdir)
 
         self.assertIsNotNone(fingerprint)
         self.assertTrue(len(fingerprint) > 0)
-        # SHA256 fingerprints start with specific format
-        self.assertTrue(":" in fingerprint or fingerprint.startswith("SHA256:"))
+        self.assertTrue(
+            ":" in fingerprint or fingerprint.startswith("SHA256:"))
 
     def test_invalid_key(self):
         """Test that invalid key returns None."""
@@ -679,7 +944,7 @@ class TestParseKeyEntries(unittest.TestCase):
             "#Instance=i-1234567890abcdef0\n",
             "#Caller=arn:aws:iam::123456789012:user/test\n",
             "#Request=req-12345\n",
-            "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ test@example.com\n",
+            "ssh-rsa AAAAB3NzaC1yc2EA test@example.com\n",
             "base64signature==\n",
             "\n"
         ]
@@ -687,12 +952,20 @@ class TestParseKeyEntries(unittest.TestCase):
         entries = list(parse_key_entries(lines))
 
         self.assertEqual(len(entries), 1)
-        self.assertEqual(entries[0]["key"], "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ test@example.com")
+        self.assertEqual(
+            entries[0]["key"],
+            "ssh-rsa AAAAB3NzaC1yc2EA test@example.com")
         self.assertEqual(entries[0]["signature"], "base64signature==")
-        self.assertEqual(entries[0]["metadata"]["timestamp"], "1234567890")
-        self.assertEqual(entries[0]["metadata"]["instance_id"], "i-1234567890abcdef0")
-        self.assertEqual(entries[0]["metadata"]["caller"], "arn:aws:iam::123456789012:user/test")
-        self.assertEqual(entries[0]["metadata"]["request"], "req-12345")
+        self.assertEqual(
+            entries[0]["metadata"]["timestamp"], "1234567890")
+        self.assertEqual(
+            entries[0]["metadata"]["instance_id"],
+            "i-1234567890abcdef0")
+        self.assertEqual(
+            entries[0]["metadata"]["caller"],
+            "arn:aws:iam::123456789012:user/test")
+        self.assertEqual(
+            entries[0]["metadata"]["request"], "req-12345")
 
     def test_parse_multiple_entries(self):
         """Test parsing multiple key entries."""
@@ -711,8 +984,10 @@ class TestParseKeyEntries(unittest.TestCase):
         entries = list(parse_key_entries(lines))
 
         self.assertEqual(len(entries), 2)
-        self.assertEqual(entries[0]["metadata"]["timestamp"], "1111111111")
-        self.assertEqual(entries[1]["metadata"]["timestamp"], "2222222222")
+        self.assertEqual(
+            entries[0]["metadata"]["timestamp"], "1111111111")
+        self.assertEqual(
+            entries[1]["metadata"]["timestamp"], "2222222222")
 
     def test_skip_invalid_entry(self):
         """Test that invalid entries are skipped."""
@@ -730,20 +1005,287 @@ class TestParseKeyEntries(unittest.TestCase):
 
         entries = list(parse_key_entries(lines))
 
-        # Should only get the valid entry
         self.assertEqual(len(entries), 1)
-        self.assertEqual(entries[0]["metadata"]["timestamp"], "9876543210")
+        self.assertEqual(
+            entries[0]["metadata"]["timestamp"], "9876543210")
+
+    def test_empty_input(self):
+        """Test parsing empty input."""
+        entries = list(parse_key_entries([]))
+        self.assertEqual(len(entries), 0)
+
+    def test_whitespace_only_lines(self):
+        """Test that whitespace-only lines are skipped."""
+        lines = ["\n", "  \n", "\n"]
+        entries = list(parse_key_entries(lines))
+        self.assertEqual(len(entries), 0)
 
 
 class TestProcessKeys(unittest.TestCase):
-    """Test the process_keys function."""
+    """Test the process_keys function with mocked dependencies."""
 
-    def test_placeholder(self):
-        """Placeholder test for process_keys."""
-        # This is an integration test requiring valid certificates,
-        # signatures, and key files - complex to set up
-        # Skipping detailed test for now
-        pass
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.keys_file = Path(self.tmpdir) / "keys"
+        self.pubkey_file = Path(self.tmpdir) / "pubkey.pem"
+        self.pubkey_file.write_text("PUBKEY")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    @patch('syslog.syslog')
+    @patch('eic_parse.verify_key_signature', return_value=True)
+    @patch('eic_parse.get_ssh_key_fingerprint',
+           return_value='SHA256:testfp')
+    def test_valid_key_accepted(self, _mock_fp, _mock_sig, _mock_syslog):
+        """A valid, non-expired key with matching instance ID is accepted."""
+        future_ts = str(int(time.time()) + 3600)
+        self.keys_file.write_text(
+            f"#Timestamp={future_ts}\n"
+            "#Instance=i-abc123\n"
+            "ssh-rsa AAAA testkey\n"
+            "sig==\n"
+        )
+
+        result = process_keys(
+            str(self.keys_file), "i-abc123",
+            int(time.time()), None,
+            "openssl", self.pubkey_file, self.tmpdir)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], "ssh-rsa AAAA testkey")
+
+    @patch('syslog.syslog')
+    @patch('eic_parse.verify_key_signature', return_value=True)
+    @patch('eic_parse.get_ssh_key_fingerprint',
+           return_value='SHA256:testfp')
+    def test_expired_key_rejected(self, _mock_fp, _mock_sig, _mock_syslog):
+        """An expired key (timestamp in the past) is rejected."""
+        past_ts = str(int(time.time()) - 3600)
+        self.keys_file.write_text(
+            f"#Timestamp={past_ts}\n"
+            "#Instance=i-abc123\n"
+            "ssh-rsa AAAA testkey\n"
+            "sig==\n"
+        )
+
+        result = process_keys(
+            str(self.keys_file), "i-abc123",
+            int(time.time()), None,
+            "openssl", self.pubkey_file, self.tmpdir)
+
+        self.assertEqual(len(result), 0)
+
+    @patch('syslog.syslog')
+    @patch('eic_parse.verify_key_signature', return_value=True)
+    @patch('eic_parse.get_ssh_key_fingerprint',
+           return_value='SHA256:testfp')
+    def test_wrong_instance_id_rejected(self, _mock_fp, _mock_sig,
+                                        _mock_syslog):
+        """A key with a non-matching instance ID is rejected."""
+        future_ts = str(int(time.time()) + 3600)
+        self.keys_file.write_text(
+            f"#Timestamp={future_ts}\n"
+            "#Instance=i-DIFFERENT\n"
+            "ssh-rsa AAAA testkey\n"
+            "sig==\n"
+        )
+
+        result = process_keys(
+            str(self.keys_file), "i-abc123",
+            int(time.time()), None,
+            "openssl", self.pubkey_file, self.tmpdir)
+
+        self.assertEqual(len(result), 0)
+
+    @patch('syslog.syslog')
+    @patch('eic_parse.verify_key_signature', return_value=False)
+    @patch('eic_parse.get_ssh_key_fingerprint',
+           return_value='SHA256:testfp')
+    def test_bad_signature_rejected(self, _mock_fp, _mock_sig, _mock_syslog):
+        """A key with an invalid signature is rejected."""
+        future_ts = str(int(time.time()) + 3600)
+        self.keys_file.write_text(
+            f"#Timestamp={future_ts}\n"
+            "#Instance=i-abc123\n"
+            "ssh-rsa AAAA testkey\n"
+            "sig==\n"
+        )
+
+        result = process_keys(
+            str(self.keys_file), "i-abc123",
+            int(time.time()), None,
+            "openssl", self.pubkey_file, self.tmpdir)
+
+        self.assertEqual(len(result), 0)
+
+    @patch('syslog.syslog')
+    @patch('eic_parse.verify_key_signature', return_value=True)
+    @patch('eic_parse.get_ssh_key_fingerprint',
+           return_value='SHA256:wrongfp')
+    def test_fingerprint_mismatch_rejected(self, _mock_fp, _mock_sig,
+                                           _mock_syslog):
+        """When expected_key is set, mismatched fingerprint is rejected."""
+        future_ts = str(int(time.time()) + 3600)
+        self.keys_file.write_text(
+            f"#Timestamp={future_ts}\n"
+            "#Instance=i-abc123\n"
+            "ssh-rsa AAAA testkey\n"
+            "sig==\n"
+        )
+
+        result = process_keys(
+            str(self.keys_file), "i-abc123",
+            int(time.time()), "SHA256:expectedfp",
+            "openssl", self.pubkey_file, self.tmpdir)
+
+        self.assertEqual(len(result), 0)
+
+    @patch('syslog.syslog')
+    def test_missing_keys_file(self, _mock_syslog):
+        """Returns empty list when keys file doesn't exist."""
+        result = process_keys(
+            "/nonexistent/path", "i-abc123",
+            int(time.time()), None,
+            "openssl", self.pubkey_file, self.tmpdir)
+
+        self.assertEqual(len(result), 0)
+
+
+class TestMain(unittest.TestCase):
+    """Test the main() entry point."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    @patch('syslog.syslog')
+    @patch('eic_parse.process_keys', return_value=['ssh-rsa AAAA key'])
+    @patch('eic_parse.get_cert_pubkey', return_value='BEGIN PUBLIC KEY')
+    @patch('eic_parse.verify_ocsp_chain')
+    @patch('eic_parse.verify_trust_chain')
+    @patch('eic_parse.extract_cn', return_value='expected.signer.com')
+    @patch('eic_parse.build_ca_trust_chain')
+    @patch('eic_parse.build_ca_bundles_dir')
+    @patch('eic_parse.split_cert_chain')
+    @patch('shutil.rmtree')
+    @patch('os.umask')
+    @patch('time.time', return_value=1700000000.0)
+    def test_main_with_valid_keys(self, _mock_time, _mock_umask,
+                                  _mock_rmtree, mock_split,
+                                  mock_bundles, mock_trust,
+                                  mock_cn, mock_verify_trust,
+                                  mock_verify_ocsp, mock_pubkey,
+                                  mock_process, _mock_syslog):
+        """main() should print valid keys and exit 0."""
+        cert0 = Path(self.tmpdir) / "cert0.pem"
+        cert1 = Path(self.tmpdir) / "cert1.pem"
+        cert0.write_text("CERT0")
+        cert1.write_text("CERT1")
+        mock_split.return_value = [cert0, cert1]
+        mock_bundles.return_value = Path(self.tmpdir) / "bundles"
+        mock_trust.return_value = Path(self.tmpdir) / "ca-trust.pem"
+
+        test_args = [
+            'eic_parse.py',
+            '-x', 'false',
+            '-p', '/tmp/keys',
+            '-o', '/usr/bin/openssl',
+            '-d', self.tmpdir,
+            '-s', 'CERT_CHAIN',
+            '-i', 'i-abc123',
+            '-c', 'expected.signer.com',
+            '-a', '/etc/ssl/certs',
+            '-v', '/tmp/ocsp',
+        ]
+
+        with patch.object(sys, 'argv', test_args):
+            with self.assertRaises(SystemExit) as ctx:
+                main()
+            self.assertEqual(ctx.exception.code, 0)
+
+    @patch('syslog.syslog')
+    @patch('eic_parse.process_keys', return_value=[])
+    @patch('eic_parse.get_cert_pubkey', return_value='BEGIN PUBLIC KEY')
+    @patch('eic_parse.verify_ocsp_chain')
+    @patch('eic_parse.verify_trust_chain')
+    @patch('eic_parse.extract_cn', return_value='expected.signer.com')
+    @patch('eic_parse.build_ca_trust_chain')
+    @patch('eic_parse.build_ca_bundles_dir')
+    @patch('eic_parse.split_cert_chain')
+    @patch('shutil.rmtree')
+    @patch('os.umask')
+    @patch('time.time', return_value=1700000000.0)
+    def test_main_no_valid_keys_exits_255(self, _mock_time, _mock_umask,
+                                          _mock_rmtree, mock_split,
+                                          mock_bundles, mock_trust,
+                                          mock_cn, mock_verify_trust,
+                                          mock_verify_ocsp, mock_pubkey,
+                                          mock_process, _mock_syslog):
+        """main() should exit 255 when no valid keys are found."""
+        cert0 = Path(self.tmpdir) / "cert0.pem"
+        cert1 = Path(self.tmpdir) / "cert1.pem"
+        cert0.write_text("CERT0")
+        cert1.write_text("CERT1")
+        mock_split.return_value = [cert0, cert1]
+        mock_bundles.return_value = Path(self.tmpdir) / "bundles"
+        mock_trust.return_value = Path(self.tmpdir) / "ca-trust.pem"
+
+        test_args = [
+            'eic_parse.py',
+            '-x', 'false',
+            '-p', '/tmp/keys',
+            '-o', '/usr/bin/openssl',
+            '-d', self.tmpdir,
+            '-s', 'CERT_CHAIN',
+            '-i', 'i-abc123',
+            '-c', 'expected.signer.com',
+            '-a', '/etc/ssl/certs',
+            '-v', '/tmp/ocsp',
+        ]
+
+        with patch.object(sys, 'argv', test_args):
+            with self.assertRaises(SystemExit) as ctx:
+                main()
+            self.assertEqual(ctx.exception.code, 255)
+
+    @patch('syslog.syslog')
+    @patch('eic_parse.extract_cn', return_value='wrong.signer.com')
+    @patch('eic_parse.build_ca_trust_chain')
+    @patch('eic_parse.build_ca_bundles_dir')
+    @patch('eic_parse.split_cert_chain')
+    @patch('os.umask')
+    def test_main_cn_mismatch_exits_1(self, _mock_umask, mock_split,
+                                      mock_bundles, mock_trust,
+                                      mock_cn, _mock_syslog):
+        """main() should exit 1 when signer CN doesn't match."""
+        cert0 = Path(self.tmpdir) / "cert0.pem"
+        cert1 = Path(self.tmpdir) / "cert1.pem"
+        cert0.write_text("CERT0")
+        cert1.write_text("CERT1")
+        mock_split.return_value = [cert0, cert1]
+        mock_bundles.return_value = Path(self.tmpdir) / "bundles"
+        mock_trust.return_value = Path(self.tmpdir) / "ca-trust.pem"
+
+        test_args = [
+            'eic_parse.py',
+            '-x', 'false',
+            '-p', '/tmp/keys',
+            '-o', '/usr/bin/openssl',
+            '-d', self.tmpdir,
+            '-s', 'CERT_CHAIN',
+            '-i', 'i-abc123',
+            '-c', 'expected.signer.com',
+            '-a', '/etc/ssl/certs',
+            '-v', '/tmp/ocsp',
+        ]
+
+        with patch.object(sys, 'argv', test_args):
+            with self.assertRaises(SystemExit) as ctx:
+                main()
+            self.assertEqual(ctx.exception.code, 1)
 
 
 if __name__ == '__main__':

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 
 import os
 import subprocess
@@ -18,4 +18,5 @@ if __name__ == "__main__":
         result = subprocess.run(command, timeout=15)
         sys.exit(result.returncode)
     except subprocess.TimeoutExpired:
+        sys.stderr.write("Timeout expired")
         sys.exit(0)

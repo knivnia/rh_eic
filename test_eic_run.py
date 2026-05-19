@@ -1,283 +1,142 @@
 #!/usr/bin/env python3
-"""Test script for eic_run.py - tests timeout wrapper functionality"""
 
-import sys
 import os
-import unittest.mock as mock
 import subprocess
+import sys
+import unittest
+from unittest.mock import patch, MagicMock
 
 
-def run_test_normal_execution():
-    """Test normal execution without timeout"""
-    print(f"\n{'='*60}")
-    print("Testing normal execution (no timeout)")
-    print('='*60)
+class TestEicRunNormalExecution(unittest.TestCase):
+    """Test that successful child execution propagates exit code 0."""
 
-    # Mock subprocess.run to simulate successful execution
-    mock_result = mock.Mock()
-    mock_result.returncode = 0
+    @patch('subprocess.run')
+    @patch('os.path.isfile', return_value=True)
+    def test_normal_exit_zero(self, mock_isfile, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
 
-    def mock_run(command, timeout=None):
-        return mock_result
+        with self.assertRaises(SystemExit) as ctx:
+            runpy_exec('testuser')
 
-    with mock.patch('subprocess.run', side_effect=mock_run):
-        with mock.patch('os.path.isfile', return_value=True):
-            with mock.patch('sys.argv', ['eic_run.py', 'testuser']):
-                script_dir = os.path.dirname(os.path.abspath(__file__))
-                script = os.path.join(script_dir, "eic_curl.py")
+        self.assertEqual(ctx.exception.code, 0)
+        mock_run.assert_called_once()
 
-                if not os.path.isfile(script):
-                    print(f"✗ Script not found test failed")
-                    return False
+    @patch('subprocess.run')
+    @patch('os.path.isfile', return_value=True)
+    def test_exit_code_propagation_nonzero(self, mock_isfile, mock_run):
+        """Non-zero child exit code should be propagated."""
+        mock_run.return_value = MagicMock(returncode=1)
 
-                command = [sys.executable, script] + ['testuser']
+        with self.assertRaises(SystemExit) as ctx:
+            runpy_exec('testuser')
 
-                try:
-                    result = subprocess.run(command, timeout=5)
-                    if result.returncode == 0:
-                        print(f"✓ Normal execution test passed (exit code {result.returncode})")
-                        return True
-                    else:
-                        print(f"✗ Normal execution test failed with code: {result.returncode}")
-                        return False
-                except subprocess.TimeoutExpired:
-                    print(f"✗ Normal execution test timed out unexpectedly")
-                    return False
+        self.assertEqual(ctx.exception.code, 1)
 
+    @patch('subprocess.run')
+    @patch('os.path.isfile', return_value=True)
+    def test_exit_code_255_propagation(self, mock_isfile, mock_run):
+        """Exit code 255 from child should be propagated."""
+        mock_run.return_value = MagicMock(returncode=255)
 
-def run_test_timeout():
-    """Test timeout scenario (script takes too long) - should exit 0"""
-    print(f"\n{'='*60}")
-    print("Testing timeout scenario (should exit 0)")
-    print('='*60)
+        with self.assertRaises(SystemExit) as ctx:
+            runpy_exec('testuser')
 
-    def mock_run_timeout(command, timeout=None):
-        raise subprocess.TimeoutExpired(command, timeout)
-
-    with mock.patch('subprocess.run', side_effect=mock_run_timeout):
-        with mock.patch('os.path.isfile', return_value=True):
-            with mock.patch('sys.argv', ['eic_run.py', 'testuser']):
-                script_dir = os.path.dirname(os.path.abspath(__file__))
-                script = os.path.join(script_dir, "eic_curl.py")
-
-                if not os.path.isfile(script):
-                    print(f"✗ Script not found during timeout test")
-                    return False
-
-                command = [sys.executable, script] + ['testuser']
-
-                try:
-                    result = subprocess.run(command, timeout=5)
-                    print(f"✗ Timeout test should have raised TimeoutExpired")
-                    return False
-                except subprocess.TimeoutExpired:
-                    # This is expected behavior - wrapper should exit 0
-                    print(f"✓ Timeout test correctly caught timeout (wrapper exits 0)")
-                    return True
+        self.assertEqual(ctx.exception.code, 255)
 
 
-def run_test_script_not_found():
-    """Test script not found scenario - should exit 127"""
-    print(f"\n{'='*60}")
-    print("Testing script not found (should exit 127)")
-    print('='*60)
+class TestEicRunTimeout(unittest.TestCase):
+    """Test timeout handling."""
 
-    def mock_isfile_false(path):
-        if 'eic_curl.py' in path:
-            return False
-        return True
+    @patch('subprocess.run', side_effect=subprocess.TimeoutExpired(cmd='test', timeout=15))
+    @patch('os.path.isfile', return_value=True)
+    def test_timeout_exits_zero(self, mock_isfile, mock_run):
+        """Timeout should exit 0 (fail-open for SSH auth)."""
+        with self.assertRaises(SystemExit) as ctx:
+            runpy_exec('testuser')
 
-    with mock.patch('os.path.isfile', side_effect=mock_isfile_false):
-        with mock.patch('sys.argv', ['eic_run.py', 'testuser']):
-            with mock.patch('sys.stderr.write') as mock_stderr:
-                script_dir = os.path.dirname(os.path.abspath(__file__))
-                script = os.path.join(script_dir, "eic_curl.py")
+        self.assertEqual(ctx.exception.code, 0)
 
-                if not os.path.isfile(script):
-                    # Expected behavior - should write error and exit 127
-                    print(f"✓ Script not found test correctly detected missing script (should exit 127)")
-                    # Verify error message was written to stderr
-                    return True
-                else:
-                    print(f"✗ Script not found test failed - script was found")
-                    return False
+    @patch('subprocess.run')
+    @patch('os.path.isfile', return_value=True)
+    def test_timeout_value_is_15(self, mock_isfile, mock_run):
+        """Production timeout should be 15 seconds, not 5."""
+        mock_run.return_value = MagicMock(returncode=0)
 
+        with self.assertRaises(SystemExit):
+            runpy_exec('testuser')
 
-def run_test_argument_passing():
-    """Test that arguments are correctly passed to wrapped script"""
-    print(f"\n{'='*60}")
-    print("Testing argument passing to wrapped script")
-    print('='*60)
-
-    captured_command = []
-
-    def mock_run_capture(command, timeout=None):
-        captured_command.extend(command)
-        mock_result = mock.Mock()
-        mock_result.returncode = 0
-        return mock_result
-
-    with mock.patch('subprocess.run', side_effect=mock_run_capture):
-        with mock.patch('os.path.isfile', return_value=True):
-            with mock.patch('sys.argv', ['eic_run.py', 'testuser', 'extra_arg']):
-                script_dir = os.path.dirname(os.path.abspath(__file__))
-                script = os.path.join(script_dir, "eic_curl.py")
-
-                if not os.path.isfile(script):
-                    print(f"✗ Argument passing test - script not found")
-                    return False
-
-                command = [sys.executable, script] + ['testuser', 'extra_arg']
-
-                try:
-                    result = subprocess.run(command, timeout=5)
-                    # Check if arguments are in the command
-                    if 'testuser' in str(command) and 'extra_arg' in str(command):
-                        print(f"✓ Argument passing test passed")
-                        return True
-                    else:
-                        print(f"✗ Argument passing test failed - args not found: {command}")
-                        return False
-                except subprocess.TimeoutExpired:
-                    print(f"✗ Argument passing test timed out")
-                    return False
+        _args, kwargs = mock_run.call_args
+        self.assertEqual(kwargs.get('timeout', _args[1] if len(_args) > 1 else None), 15,
+                         "Timeout must be 15 seconds to match production eic_run.py")
 
 
-def run_test_exit_code_propagation():
-    """Test that exit codes from wrapped script are propagated"""
-    print(f"\n{'='*60}")
-    print("Testing exit code propagation (exit 1)")
-    print('='*60)
+class TestEicRunScriptNotFound(unittest.TestCase):
+    """Test behaviour when eic_curl.py is missing."""
 
-    mock_result = mock.Mock()
-    mock_result.returncode = 1
+    @patch('os.path.isfile', return_value=False)
+    @patch('sys.stderr', new_callable=MagicMock)
+    def test_missing_script_exits_127(self, mock_stderr, mock_isfile):
+        with self.assertRaises(SystemExit) as ctx:
+            runpy_exec('testuser')
 
-    def mock_run_exit_1(command, timeout=None):
-        return mock_result
-
-    with mock.patch('subprocess.run', side_effect=mock_run_exit_1):
-        with mock.patch('os.path.isfile', return_value=True):
-            with mock.patch('sys.argv', ['eic_run.py', 'testuser']):
-                script_dir = os.path.dirname(os.path.abspath(__file__))
-                script = os.path.join(script_dir, "eic_curl.py")
-
-                if not os.path.isfile(script):
-                    print(f"✗ Exit code propagation test - script not found")
-                    return False
-
-                command = [sys.executable, script] + ['testuser']
-
-                try:
-                    result = subprocess.run(command, timeout=5)
-                    if result.returncode == 1:
-                        print(f"✓ Exit code propagation test passed (exit code {result.returncode})")
-                        return True
-                    else:
-                        print(f"✗ Exit code propagation test failed - expected 1, got {result.returncode}")
-                        return False
-                except subprocess.TimeoutExpired:
-                    print(f"✗ Exit code propagation test timed out")
-                    return False
+        self.assertEqual(ctx.exception.code, 127)
 
 
-def run_test_timeout_value():
-    """Test that timeout is correctly set to 5 seconds"""
-    print(f"\n{'='*60}")
-    print("Testing timeout value (should be 5 seconds)")
-    print('='*60)
+class TestEicRunArgumentPassing(unittest.TestCase):
+    """Test that arguments are forwarded to the child process."""
 
-    captured_timeout = []
+    @patch('subprocess.run')
+    @patch('os.path.isfile', return_value=True)
+    def test_username_forwarded(self, mock_isfile, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
 
-    def mock_run_capture_timeout(command, timeout=None):
-        captured_timeout.append(timeout)
-        mock_result = mock.Mock()
-        mock_result.returncode = 0
-        return mock_result
+        with self.assertRaises(SystemExit):
+            runpy_exec('ec2-user')
 
-    with mock.patch('subprocess.run', side_effect=mock_run_capture_timeout):
-        with mock.patch('os.path.isfile', return_value=True):
-            with mock.patch('sys.argv', ['eic_run.py', 'testuser']):
-                script_dir = os.path.dirname(os.path.abspath(__file__))
-                script = os.path.join(script_dir, "eic_curl.py")
+        cmd = mock_run.call_args[0][0]
+        self.assertIn('ec2-user', cmd)
 
-                if not os.path.isfile(script):
-                    print(f"✗ Timeout value test - script not found")
-                    return False
+    @patch('subprocess.run')
+    @patch('os.path.isfile', return_value=True)
+    def test_extra_args_forwarded(self, mock_isfile, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
 
-                command = [sys.executable, script] + ['testuser']
+        with self.assertRaises(SystemExit):
+            runpy_exec('testuser', 'SHA256:extraarg')
 
-                try:
-                    result = subprocess.run(command, timeout=5)
-                    if captured_timeout and captured_timeout[0] == 5:
-                        print(f"✓ Timeout value test passed (timeout={captured_timeout[0]}s)")
-                        return True
-                    elif captured_timeout:
-                        print(f"✗ Timeout value test failed - expected 5, got {captured_timeout[0]}")
-                        return False
-                    else:
-                        print(f"✗ Timeout value test failed - timeout not captured")
-                        return False
-                except subprocess.TimeoutExpired:
-                    print(f"✗ Timeout value test timed out")
-                    return False
+        cmd = mock_run.call_args[0][0]
+        self.assertIn('testuser', cmd)
+        self.assertIn('SHA256:extraarg', cmd)
+
+    @patch('subprocess.run')
+    @patch('os.path.isfile', return_value=True)
+    def test_command_starts_with_python_and_eic_curl(self, mock_isfile, mock_run):
+        """Child command should be [sys.executable, .../eic_curl.py, ...]."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        with self.assertRaises(SystemExit):
+            runpy_exec('testuser')
+
+        cmd = mock_run.call_args[0][0]
+        self.assertEqual(cmd[0], sys.executable)
+        self.assertTrue(cmd[1].endswith('eic_curl.py'))
 
 
-# Run tests
-if len(sys.argv) > 1:
-    # Allow running specific test
-    test_type = sys.argv[1]
-    valid_tests = ["normal", "timeout", "not-found", "arguments", "exit-code", "timeout-value"]
+# ---------------------------------------------------------------------------
+# Helper: run the real eic_run.py __main__ block via runpy
+# ---------------------------------------------------------------------------
+def runpy_exec(*args):
+    """Execute eic_run.py's __main__ block with the given CLI arguments.
 
-    if test_type.lower() not in valid_tests:
-        print(f"Invalid test type: {test_type}")
-        print(f"Valid options: {', '.join(valid_tests)}")
-        sys.exit(1)
+    This uses runpy.run_path so that the real production code is exercised
+    (the module's ``if __name__ == "__main__"`` block) instead of a copy.
+    """
+    import runpy
+    script = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), 'eic_run.py')
+    with patch.object(sys, 'argv', ['eic_run.py'] + list(args)):
+        runpy.run_path(script, run_name='__main__')
 
-    print(f"Running single test: {test_type}")
 
-    if test_type.lower() == "normal":
-        result = run_test_normal_execution()
-    elif test_type.lower() == "timeout":
-        result = run_test_timeout()
-    elif test_type.lower() == "not-found":
-        result = run_test_script_not_found()
-    elif test_type.lower() == "arguments":
-        result = run_test_argument_passing()
-    elif test_type.lower() == "exit-code":
-        result = run_test_exit_code_propagation()
-    elif test_type.lower() == "timeout-value":
-        result = run_test_timeout_value()
-
-    sys.exit(0 if result else 1)
-else:
-    # Run all tests
-    print("Running tests for eic_run.py timeout wrapper...")
-
-    normal_result = run_test_normal_execution()
-    timeout_result = run_test_timeout()
-    not_found_result = run_test_script_not_found()
-    arguments_result = run_test_argument_passing()
-    exit_code_result = run_test_exit_code_propagation()
-    timeout_value_result = run_test_timeout_value()
-
-    # Summary
-    print(f"\n{'='*60}")
-    print("Test Summary")
-    print('='*60)
-    print(f"Normal execution:  {'✓ PASSED' if normal_result else '✗ FAILED'}")
-    print(f"Timeout handling:  {'✓ PASSED' if timeout_result else '✗ FAILED'}")
-    print(f"Script not found:  {'✓ PASSED' if not_found_result else '✗ FAILED'}")
-    print(f"Argument passing:  {'✓ PASSED' if arguments_result else '✗ FAILED'}")
-    print(f"Exit code prop:    {'✓ PASSED' if exit_code_result else '✗ FAILED'}")
-    print(f"Timeout value:     {'✓ PASSED' if timeout_value_result else '✗ FAILED'}")
-    print('='*60)
-
-    all_passed = all([normal_result, timeout_result, not_found_result,
-                      arguments_result, exit_code_result, timeout_value_result])
-
-    if all_passed:
-        print("\n✓ All tests passed!")
-        sys.exit(0)
-    else:
-        print("\n✗ Some tests failed!")
-        sys.exit(1)
+if __name__ == '__main__':
+    unittest.main()
