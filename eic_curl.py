@@ -22,6 +22,7 @@ VALID_DOMAINS = ["amazonaws.com",
                  "amazonaws.com.cn",
                  "c2s.ic.gov",
                  "sc2s.sgov.gov"]
+MAX_RESPONSE_SIZE = 1024 * 1024
 
 
 def log_info(message):
@@ -43,7 +44,10 @@ def fetch_token():
             method="PUT",
             headers={"X-aws-ec2-metadata-token-ttl-seconds": "5"})
         with urlopen(request, timeout=IMDS_TIMEOUT) as response:
-            token = response.read().decode("utf-8").strip()
+            token = response.read(MAX_RESPONSE_SIZE + 1).decode("utf-8").strip()
+            if len(token) > MAX_RESPONSE_SIZE:
+                log_info("IMDS response exceeds maximum allowed size.")
+                sys.exit(255)
             if not token:
                 log_info("EC2 Instance Connect failed to get a IMDS token.")
                 sys.exit(255)
@@ -57,7 +61,10 @@ def fetch_instance_id(url, token):
     try:
         request = Request(url, headers={TOKEN_HEADER: token})
         with urlopen(request, timeout=IMDS_TIMEOUT) as response:
-            instance_id = response.read().decode("utf-8").strip()
+            instance_id = response.read(MAX_RESPONSE_SIZE + 1).decode("utf-8").strip()
+            if len(instance_id) > MAX_RESPONSE_SIZE:
+                log_info("IMDS response exceeds maximum allowed size.")
+                sys.exit(255)
             return instance_id
     except (URLError, HTTPError):
         return None
@@ -130,7 +137,10 @@ def fetch_and_validate_az(token):
             headers={TOKEN_HEADER: token}
         )
         with urlopen(request, timeout=IMDS_TIMEOUT) as response:
-            zone = response.read().decode("utf-8").strip()
+            zone = response.read(MAX_RESPONSE_SIZE + 1).decode("utf-8").strip()
+            if len(zone) > MAX_RESPONSE_SIZE:
+                log_info("IMDS response exceeds maximum allowed size.")
+                sys.exit(255)
             if not re.match(r"^([a-z]+-){2,3}[0-9][a-z]$", zone):
                 log_info("Invalid availability zone format.")
                 sys.exit(255)
@@ -155,7 +165,10 @@ def fetch_and_validate_domain(token):
             headers={TOKEN_HEADER: token}
         )
         with urlopen(request, timeout=IMDS_TIMEOUT) as response:
-            domain = response.read().decode("utf-8").strip()
+            domain = response.read(MAX_RESPONSE_SIZE + 1).decode("utf-8").strip()
+            if len(domain) > MAX_RESPONSE_SIZE:
+                log_info("IMDS response exceeds maximum allowed size.")
+                sys.exit(255)
             if domain not in VALID_DOMAINS:
                 log_info("EC2 Instance Connect found an invalid domain.")
                 sys.exit(255)
@@ -177,7 +190,10 @@ def fetch_signer_cert(region, domain, token):
             headers={TOKEN_HEADER: token}
         )
         with urlopen(request, timeout=IMDS_TIMEOUT) as response:
-            cert = response.read().decode("utf-8").strip()
+            cert = response.read(MAX_RESPONSE_SIZE + 1).decode("utf-8").strip()
+            if len(cert) > MAX_RESPONSE_SIZE:
+                log_info("IMDS response exceeds maximum allowed size.")
+                sys.exit(255)
             if not cert:
                 log_info("Failed to fetch the certificate.")
                 sys.exit(1)
@@ -195,13 +211,20 @@ def fetch_ocsp_staples(userpath, token):
             headers={TOKEN_HEADER: token}
         )
         with urlopen(request, timeout=IMDS_TIMEOUT) as response:
-            staples_paths = response.read().decode("utf-8").strip()
+            staples_paths = response.read(MAX_RESPONSE_SIZE + 1).decode("utf-8").strip()
+            if len(staples_paths) > MAX_RESPONSE_SIZE:
+                log_info("IMDS response exceeds maximum allowed size.")
+                sys.exit(255)
     except (URLError, HTTPError) as e:
         log_info(f"Failed to fetch OCSP staple paths: {e}.")
         sys.exit(1)
 
     ocsp_path = tempfile.mkdtemp(prefix='eic-ocsp-', dir=userpath)
     for path in staples_paths.split():
+        if '/' in path or '\\' in path or path.startswith('.'):
+            log_info(f"Invalid OCSP staple path component: {path}")
+            sys.exit(1)
+        safe_path = os.path.basename(path)
         staple_url = f"{IMDS_URL}/managed-ssh-keys/signer-ocsp/{path}"
         try:
             request = Request(
@@ -209,8 +232,16 @@ def fetch_ocsp_staples(userpath, token):
                 headers={TOKEN_HEADER: token}
             )
             with urlopen(request, timeout=IMDS_TIMEOUT) as response:
-                decoded_data = base64.b64decode(response.read())
-                staple_file = os.path.join(ocsp_path, path)
+                decoded_data = base64.b64decode(response.read(MAX_RESPONSE_SIZE + 1))
+                if len(decoded_data) > MAX_RESPONSE_SIZE:
+                    log_info("IMDS response exceeds maximum allowed size.")
+                    sys.exit(255)
+                staple_file = os.path.join(ocsp_path, safe_path)
+                if not os.path.realpath(staple_file).startswith(
+                    os.path.realpath(ocsp_path)
+                ):
+                    log_info("OCSP staple path traversal detected.")
+                    sys.exit(1)
                 with open(staple_file, "wb") as file:
                     file.write(decoded_data)
                 os.chmod(staple_file, 0o400)
@@ -229,7 +260,10 @@ def fetch_ssh_keys(username, userpath, token):
             headers={TOKEN_HEADER: token}
         )
         with urlopen(request, timeout=IMDS_TIMEOUT) as response:
-            keys_data = response.read().decode("utf-8")
+            keys_data = response.read(MAX_RESPONSE_SIZE + 1).decode("utf-8")
+            if len(keys_data) > MAX_RESPONSE_SIZE:
+                log_info("IMDS response exceeds maximum allowed size.")
+                sys.exit(255)
             with open(keys_file, 'w') as file:
                 file.write(keys_data)
             return keys_file
@@ -250,7 +284,6 @@ def call_parser(keys_file,
     parser_script = os.path.join(script_dir, 'eic_parse.py')
     cmd = [
         'python3', parser_script,
-        '-x', 'false',
         '-p', keys_file,
         '-o', '/usr/bin/openssl',
         '-d', userpath,
@@ -264,7 +297,13 @@ def call_parser(keys_file,
     if fingerprint:
         cmd.extend(['-f', fingerprint])
 
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            check=False, timeout=10)
+    except subprocess.TimeoutExpired:
+        log_info("EC2 Instance Connect parser timed out.")
+        sys.exit(1)
     sys.exit(result.returncode)
 
 
@@ -318,7 +357,7 @@ def main():
     keys_file = fetch_ssh_keys(username, userpath, token)
 
     log_info("Calling parsing script.")
-    ca_path = "/etc/ssl/certs"
+    ca_path = "/etc/pki/tls/certs"
     fingerprint = sys.argv[2] if len(sys.argv) > 2 else None
     call_parser(keys_file,
                 userpath,

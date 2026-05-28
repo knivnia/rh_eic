@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 
-import argparse
 import base64
-import os
 import shutil
 import subprocess
 import sys
@@ -13,7 +11,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch, mock_open
 
 from eic_parse import (
-    str_to_bool,
     parse_arguments,
     split_cert_chain,
     build_ca_bundles_dir,
@@ -35,48 +32,6 @@ from eic_parse import (
 )
 
 
-class TestStrToBool(unittest.TestCase):
-    """Test the str_to_bool converter function."""
-
-    def test_true_lowercase(self):
-        """Test 'true' converts to True."""
-        self.assertEqual(str_to_bool('true'), True)
-
-    def test_true_uppercase(self):
-        """Test 'TRUE' converts to True."""
-        self.assertEqual(str_to_bool('TRUE'), True)
-
-    def test_true_mixedcase(self):
-        """Test 'TrUe' converts to True."""
-        self.assertEqual(str_to_bool('TrUe'), True)
-
-    def test_false_lowercase(self):
-        """Test 'false' converts to False."""
-        self.assertEqual(str_to_bool('false'), False)
-
-    def test_false_uppercase(self):
-        """Test 'FALSE' converts to False."""
-        self.assertEqual(str_to_bool('FALSE'), False)
-
-    def test_false_mixedcase(self):
-        """Test 'FaLsE' converts to False."""
-        self.assertEqual(str_to_bool('FaLsE'), False)
-
-    def test_invalid_value(self):
-        """Test invalid value raises ArgumentTypeError."""
-        with self.assertRaises(argparse.ArgumentTypeError):
-            str_to_bool('yes')
-
-        with self.assertRaises(argparse.ArgumentTypeError):
-            str_to_bool('no')
-
-        with self.assertRaises(argparse.ArgumentTypeError):
-            str_to_bool('1')
-
-        with self.assertRaises(argparse.ArgumentTypeError):
-            str_to_bool('maybe')
-
-
 class TestParseArguments(unittest.TestCase):
     """Test the parse_arguments function."""
 
@@ -84,7 +39,6 @@ class TestParseArguments(unittest.TestCase):
         """Test parsing with all required arguments provided."""
         test_args = [
             'eic_parse.py',
-            '-x', 'true',
             '-p', '/tmp/keys',
             '-o', '/usr/bin/openssl',
             '-d', '/dev/shm/eic-test',
@@ -98,7 +52,6 @@ class TestParseArguments(unittest.TestCase):
         with patch.object(sys, 'argv', test_args):
             args = parse_arguments()
 
-            self.assertEqual(args.is_debug, True)
             self.assertEqual(args.keys_path, '/tmp/keys')
             self.assertEqual(args.openssl, '/usr/bin/openssl')
             self.assertEqual(args.tmpdir, '/dev/shm/eic-test')
@@ -113,7 +66,6 @@ class TestParseArguments(unittest.TestCase):
         """Test parsing with optional fingerprint argument."""
         test_args = [
             'eic_parse.py',
-            '-x', 'false',
             '-p', '/tmp/keys',
             '-o', '/usr/bin/openssl',
             '-d', '/dev/shm/eic-test',
@@ -128,14 +80,12 @@ class TestParseArguments(unittest.TestCase):
         with patch.object(sys, 'argv', test_args):
             args = parse_arguments()
 
-            self.assertEqual(args.is_debug, False)
             self.assertEqual(args.expected_key, 'SHA256:abcdef1234567890')
 
     def test_missing_required_arg(self):
         """Test that missing required argument causes exit."""
         test_args = [
             'eic_parse.py',
-            '-x', 'true',
             '-p', '/tmp/keys'
             # Missing other required args
         ]
@@ -143,26 +93,6 @@ class TestParseArguments(unittest.TestCase):
         with patch.object(sys, 'argv', test_args):
             with self.assertRaises(SystemExit):
                 parse_arguments()
-
-    def test_invalid_debug_value(self):
-        """Test that invalid debug value causes exit."""
-        test_args = [
-            'eic_parse.py',
-            '-x', 'yes',  # Invalid - should be true/false
-            '-p', '/tmp/keys',
-            '-o', '/usr/bin/openssl',
-            '-d', '/dev/shm/eic-test',
-            '-s', 'CERT_CHAIN_HERE',
-            '-i', 'i-1234567890abcdef0',
-            '-c', 'managed-ssh-signer.us-east-1.amazonaws.com',
-            '-a', '/etc/ssl/certs',
-            '-v', '/dev/shm/eic-ocsp'
-        ]
-
-        with patch.object(sys, 'argv', test_args):
-            with self.assertRaises(SystemExit):
-                parse_arguments()
-
 
 class TestSplitCertChain(unittest.TestCase):
     """Test the split_cert_chain function."""
@@ -186,11 +116,12 @@ BnRlc3RDQTCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEA1234567890abcdef
         certs = split_cert_chain(signer, self.tmpdir)
 
         self.assertEqual(len(certs), 1)
-        self.assertTrue(certs[0].exists())
-        self.assertEqual(certs[0].name, "cert0.pem")
+        self.assertTrue(os.path.exists(certs[0]))
+        self.assertEqual(os.path.basename(certs[0]), "cert0.pem")
 
         # Verify content
-        content = certs[0].read_text()
+        with open(certs[0]) as f:
+            content = f.read()
         self.assertIn("-----BEGIN CERTIFICATE-----", content)
         self.assertIn("-----END CERTIFICATE-----", content)
 
@@ -212,17 +143,19 @@ CERT3LINE2
         certs = split_cert_chain(signer, self.tmpdir)
 
         self.assertEqual(len(certs), 3)
-        self.assertEqual(certs[0].name, "cert0.pem")
-        self.assertEqual(certs[1].name, "cert1.pem")
-        self.assertEqual(certs[2].name, "cert2.pem")
+        self.assertEqual(os.path.basename(certs[0]), "cert0.pem")
+        self.assertEqual(os.path.basename(certs[1]), "cert1.pem")
+        self.assertEqual(os.path.basename(certs[2]), "cert2.pem")
 
         # Verify first cert content
-        cert0_content = certs[0].read_text()
+        with open(certs[0]) as f:
+            cert0_content = f.read()
         self.assertIn("CERT1LINE1", cert0_content)
         self.assertNotIn("CERT2LINE1", cert0_content)
 
         # Verify second cert content
-        cert1_content = certs[1].read_text()
+        with open(certs[1]) as f:
+            cert1_content = f.read()
         self.assertIn("CERT2LINE1", cert1_content)
         self.assertNotIn("CERT1LINE1", cert1_content)
 
@@ -245,8 +178,8 @@ LINE2
 
         self.assertEqual(len(certs), 2)
         # Both certs should be created despite whitespace
-        self.assertTrue(certs[0].exists())
-        self.assertTrue(certs[1].exists())
+        self.assertTrue(os.path.exists(certs[0]))
+        self.assertTrue(os.path.exists(certs[1]))
 
 
 class TestExtractCN(unittest.TestCase):
@@ -339,8 +272,8 @@ class TestBuildCABundlesDir(unittest.TestCase):
     def setUp(self):
         """Create a temporary directory structure."""
         self.tmpdir = tempfile.mkdtemp()
-        self.ca_dir = Path(self.tmpdir) / "ca-certs"
-        self.ca_dir.mkdir()
+        self.ca_dir = os.path.join(self.tmpdir, "ca-certs")
+        os.makedirs(self.ca_dir)
 
     def tearDown(self):
         """Clean up temporary directory."""
@@ -348,22 +281,26 @@ class TestBuildCABundlesDir(unittest.TestCase):
 
     def test_empty_cert_files(self):
         """Test with empty cert_files list."""
-        result = build_ca_bundles_dir("openssl", [], str(self.ca_dir), self.tmpdir)
-        self.assertTrue(result.exists())
-        self.assertTrue(result.is_dir())
+        result = build_ca_bundles_dir(
+            "openssl", [], self.ca_dir, self.tmpdir)
+        self.assertTrue(os.path.exists(result))
+        self.assertTrue(os.path.isdir(result))
 
     def test_with_cert_files(self):
         """Test with certificate files."""
         # Create test certificate files
-        cert0 = Path(self.tmpdir) / "cert0.pem"
-        cert1 = Path(self.tmpdir) / "cert1.pem"
-        cert0.write_text("CERT0")
-        cert1.write_text("CERT1")
+        cert0 = os.path.join(self.tmpdir, "cert0.pem")
+        cert1 = os.path.join(self.tmpdir, "cert1.pem")
+        with open(cert0, "w") as f:
+            f.write("CERT0")
+        with open(cert1, "w") as f:
+            f.write("CERT1")
         cert_files = [cert0, cert1]
 
-        result = build_ca_bundles_dir("openssl", cert_files, str(self.ca_dir), self.tmpdir)
-        self.assertTrue(result.exists())
-        self.assertTrue(result.is_dir())
+        result = build_ca_bundles_dir(
+            "openssl", cert_files, self.ca_dir, self.tmpdir)
+        self.assertTrue(os.path.exists(result))
+        self.assertTrue(os.path.isdir(result))
 
 
 class TestBuildCATrustChain(unittest.TestCase):
@@ -372,14 +309,16 @@ class TestBuildCATrustChain(unittest.TestCase):
     def setUp(self):
         """Create a temporary directory and test files."""
         self.tmpdir = tempfile.mkdtemp()
-        self.ca_bundles_dir = Path(self.tmpdir) / "ca-bundles"
-        self.ca_bundles_dir.mkdir()
+        self.ca_bundles_dir = os.path.join(self.tmpdir, "ca-bundles")
+        os.makedirs(self.ca_bundles_dir)
 
         # Create test certificate files
-        self.cert0 = Path(self.tmpdir) / "cert0.pem"
-        self.cert1 = Path(self.tmpdir) / "cert1.pem"
-        self.cert0.write_text("CERT0CONTENT\n")
-        self.cert1.write_text("CERT1CONTENT\n")
+        self.cert0 = os.path.join(self.tmpdir, "cert0.pem")
+        self.cert1 = os.path.join(self.tmpdir, "cert1.pem")
+        with open(self.cert0, "w") as f:
+            f.write("CERT0CONTENT\n")
+        with open(self.cert1, "w") as f:
+            f.write("CERT1CONTENT\n")
         self.cert_files = [self.cert0, self.cert1]
 
     def tearDown(self):
@@ -389,37 +328,36 @@ class TestBuildCATrustChain(unittest.TestCase):
     def test_build_ca_trust_chain(self):
         """Test building CA trust chain."""
         # Create a CA bundle file
-        ca_bundle = self.ca_bundles_dir / "test_ca"
-        ca_bundle.write_text("CABUNDLECONTENT\n")
+        ca_bundle = os.path.join(self.ca_bundles_dir, "test_ca")
+        with open(ca_bundle, "w") as f:
+            f.write("CABUNDLECONTENT\n")
 
         result = build_ca_trust_chain(
-            "openssl",
             self.cert_files,
-            "/etc/ssl/certs",
             self.tmpdir,
             self.ca_bundles_dir
         )
 
-        self.assertTrue(result.exists())
-        self.assertEqual(result.name, "ca-trust.pem")
+        self.assertTrue(os.path.exists(result))
+        self.assertEqual(os.path.basename(result), "ca-trust.pem")
 
         # Verify content includes cert1 and ca bundle
-        content = result.read_text()
+        with open(result) as f:
+            content = f.read()
         self.assertIn("CERT1CONTENT", content)
         self.assertIn("CABUNDLECONTENT", content)
 
     def test_empty_ca_bundles_dir(self):
         """Test with empty ca_bundles_dir."""
         result = build_ca_trust_chain(
-            "openssl",
             self.cert_files,
-            "/etc/ssl/certs",
             self.tmpdir,
             self.ca_bundles_dir
         )
 
-        self.assertTrue(result.exists())
-        content = result.read_text()
+        self.assertTrue(os.path.exists(result))
+        with open(result) as f:
+            content = f.read()
         self.assertIn("CERT1CONTENT", content)
 
 
@@ -888,10 +826,10 @@ class TestVerifyKeySignature(unittest.TestCase):
             "openssl", "data", sig_b64,
             pubkey_file, self.tmpdir)
 
-        signed_data_file = Path(self.tmpdir) / "signed_data"
-        sig_file = Path(self.tmpdir) / "decoded_sig"
-        self.assertFalse(signed_data_file.exists())
-        self.assertFalse(sig_file.exists())
+        signed_data_file = os.path.join(self.tmpdir, "signed_data")
+        sig_file = os.path.join(self.tmpdir, "decoded_sig")
+        self.assertFalse(os.path.exists(signed_data_file))
+        self.assertFalse(os.path.exists(sig_file))
 
 
 class TestGetSshKeyFingerprint(unittest.TestCase):
@@ -1190,7 +1128,6 @@ class TestMain(unittest.TestCase):
 
         test_args = [
             'eic_parse.py',
-            '-x', 'false',
             '-p', '/tmp/keys',
             '-o', '/usr/bin/openssl',
             '-d', self.tmpdir,
@@ -1235,7 +1172,6 @@ class TestMain(unittest.TestCase):
 
         test_args = [
             'eic_parse.py',
-            '-x', 'false',
             '-p', '/tmp/keys',
             '-o', '/usr/bin/openssl',
             '-d', self.tmpdir,
@@ -1271,7 +1207,6 @@ class TestMain(unittest.TestCase):
 
         test_args = [
             'eic_parse.py',
-            '-x', 'false',
             '-p', '/tmp/keys',
             '-o', '/usr/bin/openssl',
             '-d', self.tmpdir,

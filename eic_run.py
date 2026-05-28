@@ -18,5 +18,5 @@ if __name__ == "__main__":
         result = subprocess.run(command, timeout=15)
         sys.exit(result.returncode)
     except subprocess.TimeoutExpired:
-        sys.stderr.write("Timeout expired")
+        sys.stderr.write("Timeout expired\n")
         sys.exit(0)
