@@ -52,8 +52,8 @@ def fetch_token():
                 log_info("EC2 Instance Connect failed to get a IMDS token.")
                 sys.exit(255)
             return token
-    except (URLError, HTTPError):
-        log_info("EC2 Instance Connect failed to establish trust with IMDS.")
+    except (URLError, HTTPError) as e:
+        log_info(f"EC2 Instance Connect failed to establish trust with IMDS: {e}")
         sys.exit(255)
 
 
@@ -304,6 +304,8 @@ def call_parser(keys_file,
     except subprocess.TimeoutExpired:
         log_info("EC2 Instance Connect parser timed out.")
         sys.exit(1)
+    if result.stdout:
+        sys.stdout.write(result.stdout)
     sys.exit(result.returncode)
 
 
