@@ -309,7 +309,7 @@ class TestCallParser(unittest.TestCase):
     @patch('syslog.syslog')
     @patch('subprocess.run')
     def test_calls_eic_parse_and_exits(self, mock_run, _mock_syslog):
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_run.return_value = MagicMock(returncode=0, stdout='')
 
         with self.assertRaises(SystemExit) as ctx:
             eic_curl.call_parser(
@@ -324,7 +324,7 @@ class TestCallParser(unittest.TestCase):
     @patch('syslog.syslog')
     @patch('subprocess.run')
     def test_propagates_parser_exit_code(self, mock_run, _mock_syslog):
-        mock_run.return_value = MagicMock(returncode=255)
+        mock_run.return_value = MagicMock(returncode=255, stdout='')
 
         with self.assertRaises(SystemExit) as ctx:
             eic_curl.call_parser(
@@ -337,7 +337,7 @@ class TestCallParser(unittest.TestCase):
     @patch('syslog.syslog')
     @patch('subprocess.run')
     def test_fingerprint_passed_when_provided(self, mock_run, _mock_syslog):
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_run.return_value = MagicMock(returncode=0, stdout='')
 
         with self.assertRaises(SystemExit):
             eic_curl.call_parser(
@@ -404,7 +404,7 @@ class TestMainIntegration(unittest.TestCase):
             return _imds_response('')
 
         mock_urlopen.side_effect = urlopen_router
-        mock_subprocess.return_value = MagicMock(returncode=0)
+        mock_subprocess.return_value = MagicMock(returncode=0, stdout='')
 
         with patch.object(sys, 'argv', ['eic_curl.py', 'testuser']):
             with self.assertRaises(SystemExit) as ctx:

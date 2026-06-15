@@ -313,7 +313,6 @@ def main():
     # Set umask for temp file security
     os.umask(0o077)
 
-    log_info("Checking for username argument.")
     if len(sys.argv) < 2:
         log_info("EC2 Instance Connect was invoked without a user.")
         sys.exit(1)

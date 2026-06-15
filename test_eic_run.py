@@ -70,12 +70,50 @@ class TestEicRunTimeout(unittest.TestCase):
                          "Timeout must be 15 seconds to match production eic_run.py")
 
 
+class TestEicRunUsernameValidation(unittest.TestCase):
+    """Username format is validated at the AuthorizedKeysCommand entry point."""
+
+    @patch('syslog.syslog')
+    @patch('subprocess.run')
+    @patch('os.path.isfile', return_value=True)
+    def test_invalid_username_exits_1(self, mock_isfile, mock_run, _mock_syslog):
+        with self.assertRaises(SystemExit) as ctx:
+            runpy_exec('../etc/passwd')
+
+        self.assertEqual(ctx.exception.code, 1)
+        mock_run.assert_not_called()
+
+    @patch('syslog.syslog')
+    @patch('subprocess.run')
+    @patch('os.path.isfile', return_value=True)
+    def test_valid_username_runs_child(self, mock_isfile, mock_run, _mock_syslog):
+        mock_run.return_value = MagicMock(returncode=0)
+
+        with self.assertRaises(SystemExit) as ctx:
+            runpy_exec('ec2-user')
+
+        self.assertEqual(ctx.exception.code, 0)
+        mock_run.assert_called_once()
+
+    @patch('syslog.syslog')
+    @patch('os.path.isfile', return_value=True)
+    def test_missing_username_exits_1(self, mock_isfile, _mock_syslog):
+        import runpy
+        script = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), 'eic_run.py')
+        with patch.object(sys, 'argv', ['eic_run.py']):
+            with self.assertRaises(SystemExit) as ctx:
+                runpy.run_path(script, run_name='__main__')
+        self.assertEqual(ctx.exception.code, 1)
+
+
 class TestEicRunScriptNotFound(unittest.TestCase):
     """Test behaviour when eic_curl.py is missing."""
 
+    @patch('syslog.syslog')
     @patch('os.path.isfile', return_value=False)
     @patch('sys.stderr', new_callable=MagicMock)
-    def test_missing_script_exits_127(self, mock_stderr, mock_isfile):
+    def test_missing_script_exits_127(self, mock_stderr, mock_isfile, _mock_syslog):
         with self.assertRaises(SystemExit) as ctx:
             runpy_exec('testuser')
 
