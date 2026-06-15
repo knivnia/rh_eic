@@ -15,19 +15,9 @@
   `sudo chmod 755 /opt/aws/bin/*.py`
 
   3. Configure sshd
-<<<<<<< HEAD
   
-  ```
-  sudo bash -c 'cat > /etc/ssh/sshd_config.d/60-eic.conf << EOF
-  AuthorizedKeysCommand /opt/aws/bin/eic_run.py %u %f
-  AuthorizedKeysCommandUser root
-  EOF'
-  ```
- 
-=======
   `sudo mkdir -p /etc/ssh/sshd_config.d`
   `sudo bash -c 'printf "%s\n" "AuthorizedKeysCommand /opt/aws/bin/eic_run.py %u %f" "AuthorizedKeysCommandUser root" > /etc/ssh/sshd_config.d/60-eic.conf'`
->>>>>>> 3abfeec (Improve username validation)
   `sudo chmod 600 /etc/ssh/sshd_config.d/60-eic.conf`
   
   `sudo sshd -t && sudo systemctl restart sshd`
@@ -46,8 +36,5 @@
   5. Verify
   
   `sudo sshd -T | grep -i authorizedkeyscommand`
-<<<<<<< HEAD
   
-=======
->>>>>>> 3abfeec (Improve username validation)
   `getenforce  # should say "Enforcing"`
