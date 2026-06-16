@@ -40,11 +40,14 @@ def main():
     command = [sys.executable, script] + sys.argv[1:]
 
     try:
-        result = subprocess.run(command, timeout=15)
-        sys.exit(result.returncode)
+        result = subprocess.run(command, capture_output=True, timeout=5)
     except subprocess.TimeoutExpired:
-        sys.stderr.write("Timeout expired\n")
-        sys.exit(0)
+        log_info("EC2 Instance Connect timed out.")
+        sys.exit(124)
+
+    if result.stdout:
+        sys.stdout.buffer.write(result.stdout)
+    sys.exit(result.returncode)
 
 
 if __name__ == "__main__":

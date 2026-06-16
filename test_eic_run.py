@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import syslog
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -13,7 +14,7 @@ class TestEicRunNormalExecution(unittest.TestCase):
     @patch('subprocess.run')
     @patch('os.path.isfile', return_value=True)
     def test_normal_exit_zero(self, mock_isfile, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_run.return_value = MagicMock(returncode=0, stdout=b'')
 
         with self.assertRaises(SystemExit) as ctx:
             runpy_exec('testuser')
@@ -23,9 +24,21 @@ class TestEicRunNormalExecution(unittest.TestCase):
 
     @patch('subprocess.run')
     @patch('os.path.isfile', return_value=True)
+    def test_stdout_written_on_success(self, mock_isfile, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout=b'ssh-rsa AAAA...\n')
+
+        with patch('sys.stdout.buffer.write') as mock_write:
+            with self.assertRaises(SystemExit) as ctx:
+                runpy_exec('testuser')
+
+        self.assertEqual(ctx.exception.code, 0)
+        mock_write.assert_called_once_with(b'ssh-rsa AAAA...\n')
+
+    @patch('subprocess.run')
+    @patch('os.path.isfile', return_value=True)
     def test_exit_code_propagation_nonzero(self, mock_isfile, mock_run):
         """Non-zero child exit code should be propagated."""
-        mock_run.return_value = MagicMock(returncode=1)
+        mock_run.return_value = MagicMock(returncode=1, stdout=b'')
 
         with self.assertRaises(SystemExit) as ctx:
             runpy_exec('testuser')
@@ -36,7 +49,7 @@ class TestEicRunNormalExecution(unittest.TestCase):
     @patch('os.path.isfile', return_value=True)
     def test_exit_code_255_propagation(self, mock_isfile, mock_run):
         """Exit code 255 from child should be propagated."""
-        mock_run.return_value = MagicMock(returncode=255)
+        mock_run.return_value = MagicMock(returncode=255, stdout=b'')
 
         with self.assertRaises(SystemExit) as ctx:
             runpy_exec('testuser')
@@ -47,27 +60,32 @@ class TestEicRunNormalExecution(unittest.TestCase):
 class TestEicRunTimeout(unittest.TestCase):
     """Test timeout handling."""
 
-    @patch('subprocess.run', side_effect=subprocess.TimeoutExpired(cmd='test', timeout=15))
+    @patch('syslog.syslog')
+    @patch('subprocess.run', side_effect=subprocess.TimeoutExpired(cmd='test', timeout=5))
     @patch('os.path.isfile', return_value=True)
-    def test_timeout_exits_zero(self, mock_isfile, mock_run):
-        """Timeout should exit 0 (fail-open for SSH auth)."""
+    def test_timeout_exits_124(self, mock_isfile, mock_run, mock_syslog):
+        """Timeout should exit 124 and not leak partial stdout to sshd."""
         with self.assertRaises(SystemExit) as ctx:
             runpy_exec('testuser')
 
-        self.assertEqual(ctx.exception.code, 0)
+        self.assertEqual(ctx.exception.code, 124)
+        mock_syslog.assert_any_call(
+            syslog.LOG_AUTHPRIV | syslog.LOG_INFO,
+            "EC2 Instance Connect timed out.",
+        )
 
     @patch('subprocess.run')
     @patch('os.path.isfile', return_value=True)
-    def test_timeout_value_is_15(self, mock_isfile, mock_run):
-        """Production timeout should be 15 seconds, not 5."""
-        mock_run.return_value = MagicMock(returncode=0)
+    def test_timeout_value_is_5(self, mock_isfile, mock_run):
+        """Timeout should be 5 seconds."""
+        mock_run.return_value = MagicMock(returncode=0, stdout=b'')
 
         with self.assertRaises(SystemExit):
             runpy_exec('testuser')
 
         _args, kwargs = mock_run.call_args
-        self.assertEqual(kwargs.get('timeout', _args[1] if len(_args) > 1 else None), 15,
-                         "Timeout must be 15 seconds to match production eic_run.py")
+        self.assertEqual(kwargs.get('timeout'), 5)
+        self.assertTrue(kwargs.get('capture_output'))
 
 
 class TestEicRunUsernameValidation(unittest.TestCase):
@@ -87,7 +105,7 @@ class TestEicRunUsernameValidation(unittest.TestCase):
     @patch('subprocess.run')
     @patch('os.path.isfile', return_value=True)
     def test_valid_username_runs_child(self, mock_isfile, mock_run, _mock_syslog):
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_run.return_value = MagicMock(returncode=0, stdout=b'')
 
         with self.assertRaises(SystemExit) as ctx:
             runpy_exec('ec2-user')
@@ -126,7 +144,7 @@ class TestEicRunArgumentPassing(unittest.TestCase):
     @patch('subprocess.run')
     @patch('os.path.isfile', return_value=True)
     def test_username_forwarded(self, mock_isfile, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_run.return_value = MagicMock(returncode=0, stdout=b'')
 
         with self.assertRaises(SystemExit):
             runpy_exec('ec2-user')
@@ -137,7 +155,7 @@ class TestEicRunArgumentPassing(unittest.TestCase):
     @patch('subprocess.run')
     @patch('os.path.isfile', return_value=True)
     def test_extra_args_forwarded(self, mock_isfile, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_run.return_value = MagicMock(returncode=0, stdout=b'')
 
         with self.assertRaises(SystemExit):
             runpy_exec('testuser', 'SHA256:extraarg')
@@ -150,7 +168,7 @@ class TestEicRunArgumentPassing(unittest.TestCase):
     @patch('os.path.isfile', return_value=True)
     def test_command_starts_with_python_and_eic_curl(self, mock_isfile, mock_run):
         """Child command should be [sys.executable, .../eic_curl.py, ...]."""
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_run.return_value = MagicMock(returncode=0, stdout=b'')
 
         with self.assertRaises(SystemExit):
             runpy_exec('testuser')
