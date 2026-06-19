@@ -6,7 +6,6 @@ import os
 import pwd
 import re
 import shutil
-import subprocess
 import sys
 import syslog
 import tempfile
@@ -197,7 +196,10 @@ def fetch_signer_cert(region, domain, token):
             if not cert:
                 log_info("Failed to fetch the certificate.")
                 sys.exit(1)
-            return expected_signer, userpath, cert
+            cert_path = os.path.join(userpath, "signer-cert.pem")
+            with open(cert_path, "w") as f:
+                f.write(cert + "\n")
+            return expected_signer, userpath, cert_path
     except (URLError, HTTPError) as e:
         log_info(f"Failed to fetch the signer certificate: {e}.")
         sys.exit(1)
@@ -274,39 +276,26 @@ def fetch_ssh_keys(username, userpath, token):
 
 def call_parser(keys_file,
                 userpath,
-                cert,
+                cert_path,
                 instance_id,
                 expected_signer,
                 ca_path,
                 ocsp_path,
                 fingerprint=None):
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    parser_script = os.path.join(script_dir, 'eic_parse.py')
-    cmd = [
-        'python3', parser_script,
-        '-p', keys_file,
-        '-o', '/usr/bin/openssl',
-        '-d', userpath,
-        '-s', cert,
-        '-i', instance_id,
-        '-c', expected_signer,
-        '-a', ca_path,
-        '-v', ocsp_path
-    ]
+    import eic_parse
 
-    if fingerprint:
-        cmd.extend(['-f', fingerprint])
-
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True,
-            check=False, timeout=10)
-    except subprocess.TimeoutExpired:
-        log_info("EC2 Instance Connect parser timed out.")
-        sys.exit(1)
-    if result.stdout:
-        sys.stdout.write(result.stdout)
-    sys.exit(result.returncode)
+    exit_code = eic_parse.run(
+        keys_path=keys_file,
+        openssl="/usr/bin/openssl",
+        tmpdir=userpath,
+        signer_path=cert_path,
+        current_instance_id=instance_id,
+        expected_cn=expected_signer,
+        ca_path=ca_path,
+        ocsp_dir_path=ocsp_path,
+        expected_key=fingerprint,
+    )
+    sys.exit(exit_code)
 
 
 def main():
@@ -349,7 +338,7 @@ def main():
     domain = fetch_and_validate_domain(token)
 
     log_info("Fetching signer certificate.")
-    expected_signer, userpath, cert = fetch_signer_cert(region, domain, token)
+    expected_signer, userpath, cert_path = fetch_signer_cert(region, domain, token)
 
     log_info("Fetching OCSP staples.")
     ocsp_path = fetch_ocsp_staples(userpath, token)
@@ -362,7 +351,7 @@ def main():
     fingerprint = sys.argv[2] if len(sys.argv) > 2 else None
     call_parser(keys_file,
                 userpath,
-                cert,
+                cert_path,
                 instance_id,
                 expected_signer,
                 ca_path,

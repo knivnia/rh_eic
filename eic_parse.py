@@ -22,7 +22,8 @@ def parse_arguments():
     parser.add_argument("-p", dest="keys_path", required=True)
     parser.add_argument("-o", dest="openssl", required=True)
     parser.add_argument("-d", dest="tmpdir", required=True)
-    parser.add_argument("-s", dest="signer", required=True)
+    parser.add_argument("-s", dest="signer_path", required=True,
+                        help="Path to PEM file containing the signer certificate chain")
     parser.add_argument("-i", dest="current_instance_id", required=True)
     parser.add_argument("-c", dest="expected_cn", required=True)
     parser.add_argument("-a", dest="ca_path", required=True)
@@ -32,20 +33,21 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def split_cert_chain(signer, tmpdir):
+def split_cert_chain(signer_path, tmpdir):
     certs = []
     cur_cert = []
     cert_count = 0
 
-    for line in signer.splitlines():
-        cur_cert.append(line)
-        if line.strip() == "-----END CERTIFICATE-----":
-            cert_path = os.path.join(tmpdir, f"cert{cert_count}.pem")
-            with open(cert_path, "w") as f:
-                f.write("\n".join(cur_cert) + "\n")
-            certs.append(cert_path)
-            cur_cert = []
-            cert_count += 1
+    with open(signer_path) as f:
+        for line in f:
+            cur_cert.append(line.rstrip("\n"))
+            if line.strip() == "-----END CERTIFICATE-----":
+                cert_path = os.path.join(tmpdir, f"cert{cert_count}.pem")
+                with open(cert_path, "w") as out:
+                    out.write("\n".join(cur_cert) + "\n")
+                certs.append(cert_path)
+                cur_cert = []
+                cert_count += 1
 
     return certs
 
@@ -460,6 +462,87 @@ def process_keys(keys_path, current_instance_id, cur_time,
     return valid_keys
 
 
+def run(keys_path, openssl, tmpdir, signer_path, current_instance_id,
+        expected_cn, ca_path, ocsp_dir_path, expected_key=None):
+    """Verify signer chain and SSH keys. Prints valid keys to stdout. Returns exit code."""
+    log_info("Verifying signer certificate.")
+
+    log_info("Splitting the cert chain.")
+    cert_files = split_cert_chain(signer_path, tmpdir)
+
+    log_info("Building CA bundles dir.")
+    ca_bundles_dir = build_ca_bundles_dir(
+        openssl,
+        cert_files,
+        ca_path,
+        tmpdir
+    )
+
+    log_info("Building CA trust chain.")
+    ca_trust_file = build_ca_trust_chain(
+        cert_files,
+        tmpdir,
+        ca_bundles_dir
+    )
+
+    log_info("Verifying the CN.")
+    signer_cn = extract_cn(openssl, cert_files[0])
+    if signer_cn != expected_cn:
+        log_info("EC2 Instance Connect encountered an unrecognised signer certificate. No keys have been trusted.")
+        return 1
+
+    log_info("Verifying the trust chain.")
+    verify_trust_chain(
+        openssl,
+        cert_files[0],
+        ca_path,
+        ca_trust_file
+    )
+
+    log_info("Verifying no certs have been revoked.")
+    verify_ocsp_chain(
+        openssl,
+        cert_files,
+        ca_bundles_dir,
+        ocsp_dir_path
+    )
+
+    log_info("Removing the CA bundles dir.")
+    shutil.rmtree(ca_bundles_dir, ignore_errors=True)
+
+    log_info("Extracting signer public key.")
+    pubkey = get_cert_pubkey(openssl, cert_files[0])
+    if not pubkey:
+        log_info("EC2 Instance Connect failed to extract the public key from the signer certificate. No keys have been trusted.")
+        return 1
+    pubkey_file = os.path.join(tmpdir, "pubkey")
+    with open(pubkey_file, "w") as f:
+        f.write(pubkey)
+
+    if expected_key:
+        log_info(f"Querying EC2 Instance Connect keys for matching fingerprint: {expected_key}")
+
+    log_info("Setting current time as an expiration marker.")
+    cur_time = int(time.time())
+
+    log_info("Processing SSH keys.")
+    valid_keys = process_keys(
+        keys_path,
+        current_instance_id,
+        cur_time,
+        expected_key,
+        openssl,
+        pubkey_file,
+        tmpdir
+    )
+
+    if valid_keys:
+        for key in valid_keys:
+            print(key)
+        return 0
+    return 255
+
+
 def main():
     # Set umask for temp file security
     os.umask(0o077)
@@ -467,82 +550,21 @@ def main():
     log_info("Parsing arguments.")
     args = parse_arguments()
 
-    log_info("Verifying signer certificate.")
-
-    log_info("Splitting the cert chain.")
-    cert_files = split_cert_chain(args.signer, args.tmpdir)
-
-    log_info("Building CA bundles dir.")
-    ca_bundles_dir = build_ca_bundles_dir(
-        args.openssl,
-        cert_files,
-        args.ca_path,
-        args.tmpdir
-    )
-
-    log_info("Building CA trust chain.")
-    ca_trust_file = build_ca_trust_chain(
-        cert_files,
-        args.tmpdir,
-        ca_bundles_dir
-    )
-
-    log_info("Verifying the CN.")
-    signer_cn = extract_cn(args.openssl, cert_files[0])
-    if signer_cn != args.expected_cn:
-        log_info("EC2 Instance Connect encountered an unrecognised signer certificate. No keys have been trusted.")
+    if not os.path.isfile(args.signer_path):
+        log_info("Signer certificate file not found.")
         sys.exit(1)
 
-    log_info("Verifying the trust chain.")
-    verify_trust_chain(
-        args.openssl,
-        cert_files[0],
-        args.ca_path,
-        ca_trust_file
-    )
-
-    log_info("Verifying no certs have been revoked.")
-    verify_ocsp_chain(
-        args.openssl,
-        cert_files,
-        ca_bundles_dir,
-        args.ocsp_dir_path
-    )
-
-    log_info("Removing the CA bundles dir.")
-    shutil.rmtree(ca_bundles_dir, ignore_errors=True)
-
-    log_info("Extracting signer public key.")
-    pubkey = get_cert_pubkey(args.openssl, cert_files[0])
-    if not pubkey:
-        log_info("EC2 Instance Connect failed to extract the public key from the signer certificate. No keys have been trusted.")
-        sys.exit(1)
-    pubkey_file = os.path.join(args.tmpdir, "pubkey")
-    with open(pubkey_file, "w") as f:
-        f.write(pubkey)
-
-    if args.expected_key:
-        log_info(f"Querying EC2 Instance Connect keys for matching fingerprint: {args.expected_key}")
-
-    log_info("Setting current time as an expiration marker.")
-    cur_time = int(time.time())
-
-    log_info("Processing SSH keys.")
-    valid_keys = process_keys(
-        args.keys_path,
-        args.current_instance_id,
-        cur_time,
-        args.expected_key,
-        args.openssl,
-        pubkey_file,
-        args.tmpdir
-    )
-
-    if valid_keys:
-        for key in valid_keys:
-            print(key)
-        sys.exit(0)
-    sys.exit(255)
+    sys.exit(run(
+        keys_path=args.keys_path,
+        openssl=args.openssl,
+        tmpdir=args.tmpdir,
+        signer_path=args.signer_path,
+        current_instance_id=args.current_instance_id,
+        expected_cn=args.expected_cn,
+        ca_path=args.ca_path,
+        ocsp_dir_path=args.ocsp_dir_path,
+        expected_key=args.expected_key,
+    ))
 
 
 if __name__ == "__main__":

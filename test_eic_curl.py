@@ -2,7 +2,6 @@
 
 import base64
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -237,17 +236,21 @@ class TestFetchSignerCert(unittest.TestCase):
 
     @patch('syslog.syslog')
     @patch('eic_curl.urlopen')
-    @patch('tempfile.mkdtemp', return_value='/dev/shm/eic-test')
     @patch('atexit.register')
-    def test_success(self, _mock_atexit, _mock_mkdtemp,
-                     mock_urlopen, _mock_syslog):
+    def test_success(self, _mock_atexit, mock_urlopen, _mock_syslog):
         cert_pem = '-----BEGIN CERTIFICATE-----\nDATA\n-----END CERTIFICATE-----'
         mock_urlopen.return_value = _imds_response(cert_pem)
-        signer, userpath, cert = eic_curl.fetch_signer_cert(
-            'us-east-1', 'amazonaws.com', 'tok')
-        self.assertEqual(signer, 'managed-ssh-signer.us-east-1.amazonaws.com')
-        self.assertEqual(userpath, '/dev/shm/eic-test')
-        self.assertEqual(cert, cert_pem)
+        with tempfile.TemporaryDirectory() as userpath:
+            with patch('tempfile.mkdtemp', return_value=userpath):
+                signer, path, cert_path = eic_curl.fetch_signer_cert(
+                    'us-east-1', 'amazonaws.com', 'tok')
+            self.assertEqual(signer,
+                             'managed-ssh-signer.us-east-1.amazonaws.com')
+            self.assertEqual(path, userpath)
+            self.assertEqual(cert_path,
+                             os.path.join(userpath, 'signer-cert.pem'))
+            with open(cert_path) as f:
+                self.assertEqual(f.read().strip(), cert_pem)
 
     @patch('syslog.syslog')
     @patch('eic_curl.urlopen')
@@ -307,55 +310,49 @@ class TestFetchSshKeys(unittest.TestCase):
 class TestCallParser(unittest.TestCase):
 
     @patch('syslog.syslog')
-    @patch('subprocess.run')
+    @patch('eic_parse.run', return_value=0)
     def test_calls_eic_parse_and_exits(self, mock_run, _mock_syslog):
-        mock_run.return_value = MagicMock(returncode=0, stdout='')
-
         with self.assertRaises(SystemExit) as ctx:
             eic_curl.call_parser(
-                '/tmp/keys', '/tmp/dir', 'CERT', 'i-abc',
+                '/tmp/keys', '/tmp/dir', '/tmp/signer-cert.pem', 'i-abc',
                 'signer.us-east-1.amazonaws.com',
                 '/etc/ssl/certs', '/tmp/ocsp')
 
         self.assertEqual(ctx.exception.code, 0)
-        cmd = mock_run.call_args[0][0]
-        self.assertIn('eic_parse.py', cmd[1])
+        mock_run.assert_called_once()
+        self.assertEqual(mock_run.call_args.kwargs['signer_path'],
+                         '/tmp/signer-cert.pem')
 
     @patch('syslog.syslog')
-    @patch('subprocess.run')
+    @patch('eic_parse.run', return_value=255)
     def test_propagates_parser_exit_code(self, mock_run, _mock_syslog):
-        mock_run.return_value = MagicMock(returncode=255, stdout='')
-
         with self.assertRaises(SystemExit) as ctx:
             eic_curl.call_parser(
-                '/tmp/keys', '/tmp/dir', 'CERT', 'i-abc',
+                '/tmp/keys', '/tmp/dir', '/tmp/signer-cert.pem', 'i-abc',
                 'signer.us-east-1.amazonaws.com',
                 '/etc/ssl/certs', '/tmp/ocsp')
 
         self.assertEqual(ctx.exception.code, 255)
 
     @patch('syslog.syslog')
-    @patch('subprocess.run')
+    @patch('eic_parse.run', return_value=0)
     def test_fingerprint_passed_when_provided(self, mock_run, _mock_syslog):
-        mock_run.return_value = MagicMock(returncode=0, stdout='')
-
         with self.assertRaises(SystemExit):
             eic_curl.call_parser(
-                '/tmp/keys', '/tmp/dir', 'CERT', 'i-abc',
+                '/tmp/keys', '/tmp/dir', '/tmp/signer-cert.pem', 'i-abc',
                 'signer.us-east-1.amazonaws.com',
                 '/etc/ssl/certs', '/tmp/ocsp',
                 fingerprint='SHA256:abcdef')
 
-        cmd = mock_run.call_args[0][0]
-        self.assertIn('-f', cmd)
-        self.assertIn('SHA256:abcdef', cmd)
+        self.assertEqual(mock_run.call_args.kwargs['expected_key'],
+                         'SHA256:abcdef')
 
 
 class TestMainIntegration(unittest.TestCase):
     """Integration test: exercise main() with all external calls mocked."""
 
     @patch('syslog.syslog')
-    @patch('subprocess.run')
+    @patch('eic_parse.run', return_value=0)
     @patch('eic_curl.urlopen')
     @patch('tempfile.mkdtemp')
     @patch('atexit.register')
@@ -368,7 +365,7 @@ class TestMainIntegration(unittest.TestCase):
     def test_nitro_happy_path(self, _mock_umask, mock_fopen,
                               mock_isfile, mock_pwd, mock_chmod,
                               _mock_atexit, mock_mkdtemp,
-                              mock_urlopen, mock_subprocess,
+                              mock_urlopen, mock_parse_run,
                               _mock_syslog):
         """Full happy-path for a Nitro instance (no real I/O)."""
         # -- filesystem stubs --
@@ -404,18 +401,16 @@ class TestMainIntegration(unittest.TestCase):
             return _imds_response('')
 
         mock_urlopen.side_effect = urlopen_router
-        mock_subprocess.return_value = MagicMock(returncode=0, stdout='')
 
         with patch.object(sys, 'argv', ['eic_curl.py', 'testuser']):
             with self.assertRaises(SystemExit) as ctx:
                 eic_curl.main()
 
-        # call_parser calls sys.exit with the subprocess return code
         self.assertEqual(ctx.exception.code, 0)
-        # subprocess.run should have been called for eic_parse.py
-        mock_subprocess.assert_called_once()
-        cmd = mock_subprocess.call_args[0][0]
-        self.assertIn('eic_parse.py', cmd[1])
+        mock_parse_run.assert_called_once()
+        self.assertTrue(
+            mock_parse_run.call_args.kwargs['signer_path'].endswith(
+                'signer-cert.pem'))
 
     @patch('syslog.syslog')
     @patch('pwd.getpwnam', side_effect=KeyError('no such user'))

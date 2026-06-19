@@ -36,6 +36,15 @@ from eic_parse import (
 class TestParseArguments(unittest.TestCase):
     """Test the parse_arguments function."""
 
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.signer_path = os.path.join(self.tmpdir, 'signer.pem')
+        with open(self.signer_path, 'w') as f:
+            f.write('-----BEGIN CERTIFICATE-----\nMOCK\n-----END CERTIFICATE-----\n')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
     def test_all_required_args(self):
         """Test parsing with all required arguments provided."""
         test_args = [
@@ -43,7 +52,7 @@ class TestParseArguments(unittest.TestCase):
             '-p', '/tmp/keys',
             '-o', '/usr/bin/openssl',
             '-d', '/dev/shm/eic-test',
-            '-s', 'CERT_CHAIN_HERE',
+            '-s', self.signer_path,
             '-i', 'i-1234567890abcdef0',
             '-c', 'managed-ssh-signer.us-east-1.amazonaws.com',
             '-a', '/etc/ssl/certs',
@@ -56,7 +65,7 @@ class TestParseArguments(unittest.TestCase):
             self.assertEqual(args.keys_path, '/tmp/keys')
             self.assertEqual(args.openssl, '/usr/bin/openssl')
             self.assertEqual(args.tmpdir, '/dev/shm/eic-test')
-            self.assertEqual(args.signer, 'CERT_CHAIN_HERE')
+            self.assertEqual(args.signer_path, self.signer_path)
             self.assertEqual(args.current_instance_id, 'i-1234567890abcdef0')
             self.assertEqual(args.expected_cn, 'managed-ssh-signer.us-east-1.amazonaws.com')
             self.assertEqual(args.ca_path, '/etc/ssl/certs')
@@ -70,7 +79,7 @@ class TestParseArguments(unittest.TestCase):
             '-p', '/tmp/keys',
             '-o', '/usr/bin/openssl',
             '-d', '/dev/shm/eic-test',
-            '-s', 'CERT_CHAIN_HERE',
+            '-s', self.signer_path,
             '-i', 'i-1234567890abcdef0',
             '-c', 'managed-ssh-signer.us-east-1.amazonaws.com',
             '-a', '/etc/ssl/certs',
@@ -106,6 +115,12 @@ class TestSplitCertChain(unittest.TestCase):
         """Clean up temporary directory."""
         shutil.rmtree(self.tmpdir)
 
+    def _write_signer_file(self, pem_content):
+        signer_path = os.path.join(self.tmpdir, 'signer.pem')
+        with open(signer_path, 'w') as f:
+            f.write(pem_content)
+        return signer_path
+
     def test_single_certificate(self):
         """Test splitting a single certificate."""
         signer = """-----BEGIN CERTIFICATE-----
@@ -114,7 +129,7 @@ c3RDQTAeFw0yMTAxMDEwMDAwMDBaFw0yMjAxMDEwMDAwMDBaMBExDzANBgNVBAMM
 BnRlc3RDQTCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEA1234567890abcdef
 -----END CERTIFICATE-----"""
 
-        certs = split_cert_chain(signer, self.tmpdir)
+        certs = split_cert_chain(self._write_signer_file(signer), self.tmpdir)
 
         self.assertEqual(len(certs), 1)
         self.assertTrue(os.path.exists(certs[0]))
@@ -141,7 +156,7 @@ CERT3LINE1
 CERT3LINE2
 -----END CERTIFICATE-----"""
 
-        certs = split_cert_chain(signer, self.tmpdir)
+        certs = split_cert_chain(self._write_signer_file(signer), self.tmpdir)
 
         self.assertEqual(len(certs), 3)
         self.assertEqual(os.path.basename(certs[0]), "cert0.pem")
@@ -162,8 +177,7 @@ CERT3LINE2
 
     def test_empty_chain(self):
         """Test splitting an empty certificate chain."""
-        signer = ""
-        certs = split_cert_chain(signer, self.tmpdir)
+        certs = split_cert_chain(self._write_signer_file(""), self.tmpdir)
         self.assertEqual(len(certs), 0)
 
     def test_whitespace_handling(self):
@@ -175,7 +189,7 @@ LINE1
 LINE2
 -----END CERTIFICATE-----"""
 
-        certs = split_cert_chain(signer, self.tmpdir)
+        certs = split_cert_chain(self._write_signer_file(signer), self.tmpdir)
 
         self.assertEqual(len(certs), 2)
         # Both certs should be created despite whitespace
@@ -1096,6 +1110,9 @@ class TestMain(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
+        self.signer_path = os.path.join(self.tmpdir, 'signer-cert.pem')
+        with open(self.signer_path, 'w') as f:
+            f.write('-----BEGIN CERTIFICATE-----\nMOCK\n-----END CERTIFICATE-----\n')
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
@@ -1132,7 +1149,7 @@ class TestMain(unittest.TestCase):
             '-p', '/tmp/keys',
             '-o', '/usr/bin/openssl',
             '-d', self.tmpdir,
-            '-s', 'CERT_CHAIN',
+            '-s', self.signer_path,
             '-i', 'i-abc123',
             '-c', 'expected.signer.com',
             '-a', '/etc/ssl/certs',
@@ -1176,7 +1193,7 @@ class TestMain(unittest.TestCase):
             '-p', '/tmp/keys',
             '-o', '/usr/bin/openssl',
             '-d', self.tmpdir,
-            '-s', 'CERT_CHAIN',
+            '-s', self.signer_path,
             '-i', 'i-abc123',
             '-c', 'expected.signer.com',
             '-a', '/etc/ssl/certs',
@@ -1211,7 +1228,7 @@ class TestMain(unittest.TestCase):
             '-p', '/tmp/keys',
             '-o', '/usr/bin/openssl',
             '-d', self.tmpdir,
-            '-s', 'CERT_CHAIN',
+            '-s', self.signer_path,
             '-i', 'i-abc123',
             '-c', 'expected.signer.com',
             '-a', '/etc/ssl/certs',
