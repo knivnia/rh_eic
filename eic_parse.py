@@ -16,6 +16,12 @@ def log_info(message):
     syslog.syslog(syslog.LOG_AUTHPRIV | syslog.LOG_INFO, message)
 
 
+def _make_secure_temp(tmpdir, prefix):
+    fd, path = tempfile.mkstemp(prefix=prefix, dir=tmpdir)
+    os.close(fd)
+    return path
+
+
 def parse_arguments():
     parser = argparse.ArgumentParser()
 
@@ -276,83 +282,81 @@ def verify_ocsp_chain(openssl_cmd, cert_files, ca_bundles_dir, ocsp_dir):
 
 
 def get_ssh_key_fingerprint(key, tmpdir):
-    key_file = os.path.join(tmpdir, "temp_key")
-    with open(key_file, "w") as f:
-        f.write(f"{key}\n")
-
-    log_info(f"Running ssh-keygen on {key_file}")
+    key_file = _make_secure_temp(tmpdir, 'eic-key-')
     try:
-        result = subprocess.run(
-            ["ssh-keygen", "-lf", key_file],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=2
-        )
-        log_info(f"ssh-keygen completed, returncode={result.returncode}")
-    except subprocess.TimeoutExpired:
-        log_info("ssh-keygen timed out")
+        with open(key_file, "w") as f:
+            f.write(f"{key}\n")
+        os.chmod(key_file, 0o600)
+
+        log_info(f"Running ssh-keygen on {key_file}")
+        try:
+            result = subprocess.run(
+                ["ssh-keygen", "-lf", key_file],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=2
+            )
+            log_info(f"ssh-keygen completed, returncode={result.returncode}")
+        except subprocess.TimeoutExpired:
+            log_info("ssh-keygen timed out")
+            return None
+
+        if result.returncode != 0:
+            log_info(f"ssh-keygen failed: {result.stderr}")
+            return None
+
+        parts = result.stdout.split()
+        if len(parts) >= 2:
+            return parts[1]
+        return None
+    finally:
         if os.path.exists(key_file):
             os.unlink(key_file)
-        return None
-
-    if os.path.exists(key_file):
-        os.unlink(key_file)
-
-    if result.returncode != 0:
-        log_info(f"ssh-keygen failed: {result.stderr}")
-        return None
-
-    parts = result.stdout.split()
-    if len(parts) >= 2:
-        return parts[1]
-    return None
 
 
 def verify_key_signature(openssl_cmd, signed_data, signature,
                          pubkey_file, tmpdir):
-    signed_data_file = os.path.join(tmpdir, "signed_data")
-    with open(signed_data_file, "w") as f:
-        f.write(signed_data)
-    os.chmod(signed_data_file, 0o400)
-
+    signed_data_file = _make_secure_temp(tmpdir, 'eic-signed-')
     try:
-        sig_bytes = base64.b64decode(signature)
-    except (base64.binascii.Error, ValueError):
+        with open(signed_data_file, "w") as f:
+            f.write(signed_data)
+        os.chmod(signed_data_file, 0o400)
+
+        try:
+            sig_bytes = base64.b64decode(signature)
+        except (base64.binascii.Error, ValueError):
+            return False
+
+        sig_file = _make_secure_temp(tmpdir, 'eic-sig-')
+        try:
+            with open(sig_file, "wb") as f:
+                f.write(sig_bytes)
+            os.chmod(sig_file, 0o400)
+
+            try:
+                result = subprocess.run(
+                    [openssl_cmd, "dgst", "-sha256",
+                     "-sigopt", "rsa_padding_mode:pss",
+                     "-sigopt", "rsa_pss_saltlen:32",
+                     "-verify", pubkey_file,
+                     "-signature", sig_file,
+                     signed_data_file],
+                    capture_output=True,
+                    check=False,
+                    timeout=5
+                )
+            except subprocess.TimeoutExpired:
+                log_info("openssl dgst timed out verifying signature.")
+                return False
+
+            return result.returncode == 0
+        finally:
+            if os.path.exists(sig_file):
+                os.unlink(sig_file)
+    finally:
         if os.path.exists(signed_data_file):
             os.unlink(signed_data_file)
-        return False
-
-    sig_file = os.path.join(tmpdir, "decoded_sig")
-    with open(sig_file, "wb") as f:
-        f.write(sig_bytes)
-
-    try:
-        result = subprocess.run(
-            [openssl_cmd, "dgst", "-sha256",
-             "-sigopt", "rsa_padding_mode:pss",
-             "-sigopt", "rsa_pss_saltlen:32",
-             "-verify", pubkey_file,
-             "-signature", sig_file,
-             signed_data_file],
-            capture_output=True,
-            check=False,
-            timeout=5
-        )
-    except subprocess.TimeoutExpired:
-        log_info("openssl dgst timed out verifying signature.")
-        if os.path.exists(signed_data_file):
-            os.unlink(signed_data_file)
-        if os.path.exists(sig_file):
-            os.unlink(sig_file)
-        return False
-
-    if os.path.exists(signed_data_file):
-        os.unlink(signed_data_file)
-    if os.path.exists(sig_file):
-        os.unlink(sig_file)
-
-    return result.returncode == 0
 
 
 def parse_key_entries(lines):
@@ -515,9 +519,10 @@ def run(keys_path, openssl, tmpdir, signer_path, current_instance_id,
     if not pubkey:
         log_info("EC2 Instance Connect failed to extract the public key from the signer certificate. No keys have been trusted.")
         return 1
-    pubkey_file = os.path.join(tmpdir, "pubkey")
+    pubkey_file = _make_secure_temp(tmpdir, 'eic-pubkey-')
     with open(pubkey_file, "w") as f:
         f.write(pubkey)
+    os.chmod(pubkey_file, 0o400)
 
     if expected_key:
         log_info(f"Querying EC2 Instance Connect keys for matching fingerprint: {expected_key}")

@@ -23,6 +23,23 @@ VALID_DOMAINS = ["amazonaws.com",
                  "sc2s.sgov.gov"]
 MAX_RESPONSE_SIZE = 1024 * 1024
 
+_temp_dirs = []
+_cleanup_registered = False
+
+
+def _cleanup_temp_dirs():
+    while _temp_dirs:
+        path = _temp_dirs.pop()
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def register_temp_dir(path):
+    global _cleanup_registered
+    _temp_dirs.append(path)
+    if not _cleanup_registered:
+        atexit.register(_cleanup_temp_dirs)
+        _cleanup_registered = True
+
 
 def log_info(message):
     syslog.syslog(syslog.LOG_AUTHPRIV | syslog.LOG_INFO, message)
@@ -179,8 +196,8 @@ def fetch_and_validate_domain(token):
 
 def fetch_signer_cert(region, domain, token):
     expected_signer = f"managed-ssh-signer.{region}.{domain}"
-    userpath = tempfile.mkdtemp(prefix='eic-', dir='/dev/shm')
-    atexit.register(lambda: shutil.rmtree(userpath, ignore_errors=True))
+    userpath = tempfile.mkdtemp(prefix='eic-')
+    register_temp_dir(userpath)
 
     cert_url = f"{IMDS_URL}/managed-ssh-keys/signer-cert/"
     try:
@@ -199,6 +216,7 @@ def fetch_signer_cert(region, domain, token):
             cert_path = os.path.join(userpath, "signer-cert.pem")
             with open(cert_path, "w") as f:
                 f.write(cert + "\n")
+            os.chmod(cert_path, 0o400)
             return expected_signer, userpath, cert_path
     except (URLError, HTTPError) as e:
         log_info(f"Failed to fetch the signer certificate: {e}.")
@@ -268,6 +286,7 @@ def fetch_ssh_keys(username, userpath, token):
                 sys.exit(255)
             with open(keys_file, 'w') as file:
                 file.write(keys_data)
+            os.chmod(keys_file, 0o600)
             return keys_file
     except (URLError, HTTPError) as e:
         log_info(f"Failed to fetch SSH keys: {e}.")

@@ -236,8 +236,8 @@ class TestFetchSignerCert(unittest.TestCase):
 
     @patch('syslog.syslog')
     @patch('eic_curl.urlopen')
-    @patch('atexit.register')
-    def test_success(self, _mock_atexit, mock_urlopen, _mock_syslog):
+    @patch('eic_curl.register_temp_dir')
+    def test_success(self, _mock_register, mock_urlopen, _mock_syslog):
         cert_pem = '-----BEGIN CERTIFICATE-----\nDATA\n-----END CERTIFICATE-----'
         mock_urlopen.return_value = _imds_response(cert_pem)
         with tempfile.TemporaryDirectory() as userpath:
@@ -254,9 +254,22 @@ class TestFetchSignerCert(unittest.TestCase):
 
     @patch('syslog.syslog')
     @patch('eic_curl.urlopen')
-    @patch('tempfile.mkdtemp', return_value='/dev/shm/eic-test')
-    @patch('atexit.register')
-    def test_empty_cert_exits_1(self, _mock_atexit, _mock_mkdtemp,
+    @patch('eic_curl.register_temp_dir')
+    def test_uses_default_temp_dir_not_dev_shm(self, _mock_register,
+                                             mock_urlopen, _mock_syslog):
+        mock_urlopen.return_value = _imds_response(
+            '-----BEGIN CERTIFICATE-----\nDATA\n-----END CERTIFICATE-----')
+        with tempfile.TemporaryDirectory() as userpath:
+            with patch('tempfile.mkdtemp', return_value=userpath) as mock_mkdtemp:
+                eic_curl.fetch_signer_cert('us-east-1', 'amazonaws.com', 'tok')
+                mock_mkdtemp.assert_called_once_with(prefix='eic-')
+                self.assertNotIn('dir', mock_mkdtemp.call_args.kwargs)
+
+    @patch('syslog.syslog')
+    @patch('eic_curl.urlopen')
+    @patch('tempfile.mkdtemp', return_value='/tmp/eic-test')
+    @patch('eic_curl.register_temp_dir')
+    def test_empty_cert_exits_1(self, _mock_register, _mock_mkdtemp,
                                 mock_urlopen, _mock_syslog):
         mock_urlopen.return_value = _imds_response('')
         with self.assertRaises(SystemExit) as ctx:
@@ -355,7 +368,7 @@ class TestMainIntegration(unittest.TestCase):
     @patch('eic_parse.run', return_value=0)
     @patch('eic_curl.urlopen')
     @patch('tempfile.mkdtemp')
-    @patch('atexit.register')
+    @patch('eic_curl.register_temp_dir')
     @patch('os.chmod')
     @patch('pwd.getpwnam')
     @patch('os.path.isfile')
@@ -364,7 +377,7 @@ class TestMainIntegration(unittest.TestCase):
     @patch('os.umask')
     def test_nitro_happy_path(self, _mock_umask, mock_fopen,
                               mock_isfile, mock_pwd, mock_chmod,
-                              _mock_atexit, mock_mkdtemp,
+                              _mock_register, mock_mkdtemp,
                               mock_urlopen, mock_parse_run,
                               _mock_syslog):
         """Full happy-path for a Nitro instance (no real I/O)."""

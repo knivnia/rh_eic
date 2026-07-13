@@ -841,10 +841,11 @@ class TestVerifyKeySignature(unittest.TestCase):
             "openssl", "data", sig_b64,
             pubkey_file, self.tmpdir)
 
-        signed_data_file = os.path.join(self.tmpdir, "signed_data")
-        sig_file = os.path.join(self.tmpdir, "decoded_sig")
-        self.assertFalse(os.path.exists(signed_data_file))
-        self.assertFalse(os.path.exists(sig_file))
+        temp_files = [
+            name for name in os.listdir(self.tmpdir)
+            if name.startswith(('eic-signed-', 'eic-sig-'))
+        ]
+        self.assertEqual(temp_files, [])
 
 
 class TestGetSshKeyFingerprint(unittest.TestCase):
