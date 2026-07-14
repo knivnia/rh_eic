@@ -22,6 +22,7 @@ VALID_DOMAINS = ["amazonaws.com",
                  "c2s.ic.gov",
                  "sc2s.sgov.gov"]
 MAX_RESPONSE_SIZE = 1024 * 1024
+CA_BUNDLE = "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"
 
 _temp_dirs = []
 _cleanup_registered = False
@@ -365,7 +366,7 @@ def main():
     keys_file = fetch_ssh_keys(username, userpath, token)
 
     log_info("Calling parsing script.")
-    ca_path = "/etc/pki/tls/certs"
+    ca_path = CA_BUNDLE
     fingerprint = sys.argv[2] if len(sys.argv) > 2 else None
     call_parser(keys_file,
                 userpath,

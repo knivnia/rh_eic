@@ -329,7 +329,7 @@ class TestCallParser(unittest.TestCase):
             eic_curl.call_parser(
                 '/tmp/keys', '/tmp/dir', '/tmp/signer-cert.pem', 'i-abc',
                 'signer.us-east-1.amazonaws.com',
-                '/etc/ssl/certs', '/tmp/ocsp')
+                eic_curl.CA_BUNDLE, '/tmp/ocsp')
 
         self.assertEqual(ctx.exception.code, 0)
         mock_run.assert_called_once()
@@ -343,7 +343,7 @@ class TestCallParser(unittest.TestCase):
             eic_curl.call_parser(
                 '/tmp/keys', '/tmp/dir', '/tmp/signer-cert.pem', 'i-abc',
                 'signer.us-east-1.amazonaws.com',
-                '/etc/ssl/certs', '/tmp/ocsp')
+                eic_curl.CA_BUNDLE, '/tmp/ocsp')
 
         self.assertEqual(ctx.exception.code, 255)
 
@@ -354,7 +354,7 @@ class TestCallParser(unittest.TestCase):
             eic_curl.call_parser(
                 '/tmp/keys', '/tmp/dir', '/tmp/signer-cert.pem', 'i-abc',
                 'signer.us-east-1.amazonaws.com',
-                '/etc/ssl/certs', '/tmp/ocsp',
+                eic_curl.CA_BUNDLE, '/tmp/ocsp',
                 fingerprint='SHA256:abcdef')
 
         self.assertEqual(mock_run.call_args.kwargs['expected_key'],
@@ -421,6 +421,8 @@ class TestMainIntegration(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, 0)
         mock_parse_run.assert_called_once()
+        self.assertEqual(
+            mock_parse_run.call_args.kwargs['ca_path'], eic_curl.CA_BUNDLE)
         self.assertTrue(
             mock_parse_run.call_args.kwargs['signer_path'].endswith(
                 'signer-cert.pem'))

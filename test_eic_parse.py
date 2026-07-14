@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch, mock_open
 
+RHEL_CA_BUNDLE = "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"
+
 from eic_parse import (
     parse_arguments,
     split_cert_chain,
@@ -54,7 +56,7 @@ class TestParseArguments(unittest.TestCase):
             '-s', self.signer_path,
             '-i', 'i-1234567890abcdef0',
             '-c', 'managed-ssh-signer.us-east-1.amazonaws.com',
-            '-a', '/etc/ssl/certs',
+            '-a', RHEL_CA_BUNDLE,
             '-v', '/dev/shm/eic-ocsp'
         ]
 
@@ -66,7 +68,7 @@ class TestParseArguments(unittest.TestCase):
             self.assertEqual(args.signer_path, self.signer_path)
             self.assertEqual(args.current_instance_id, 'i-1234567890abcdef0')
             self.assertEqual(args.expected_cn, 'managed-ssh-signer.us-east-1.amazonaws.com')
-            self.assertEqual(args.ca_path, '/etc/ssl/certs')
+            self.assertEqual(args.ca_path, RHEL_CA_BUNDLE)
             self.assertEqual(args.ocsp_dir_path, '/dev/shm/eic-ocsp')
             self.assertEqual(args.expected_key, None)
 
@@ -79,7 +81,7 @@ class TestParseArguments(unittest.TestCase):
             '-s', self.signer_path,
             '-i', 'i-1234567890abcdef0',
             '-c', 'managed-ssh-signer.us-east-1.amazonaws.com',
-            '-a', '/etc/ssl/certs',
+            '-a', RHEL_CA_BUNDLE,
             '-v', '/dev/shm/eic-ocsp',
             '-f', 'SHA256:abcdef1234567890'
         ]
@@ -314,6 +316,37 @@ class TestBuildCABundlesDir(unittest.TestCase):
             "openssl", cert_files, self.ca_dir, self.tmpdir)
         self.assertTrue(os.path.exists(result))
         self.assertTrue(os.path.isdir(result))
+
+    @patch('eic_parse.extract_cn', return_value='Test CA')
+    def test_with_bundle_file(self, _mock_extract_cn):
+        """Test with a PEM bundle file instead of a certificate directory."""
+        bundle_path = os.path.join(self.tmpdir, "tls-ca-bundle.pem")
+        bundle_content = """# Test CA
+-----BEGIN CERTIFICATE-----
+TESTCACERT1
+TESTCACERT2
+-----END CERTIFICATE-----"""
+        with open(bundle_path, "w") as f:
+            f.write(bundle_content)
+
+        cert0 = os.path.join(self.tmpdir, "cert0.pem")
+        cert1 = os.path.join(self.tmpdir, "cert1.pem")
+        with open(cert0, "w") as f:
+            f.write("CERT0")
+        with open(cert1, "w") as f:
+            f.write("CERT1")
+        cert_files = [cert0, cert1]
+
+        result = build_ca_bundles_dir(
+            "openssl", cert_files, bundle_path, self.tmpdir)
+
+        self.assertTrue(os.path.exists(result))
+        output_file = os.path.join(result, "Test CA")
+        self.assertTrue(os.path.isfile(output_file))
+        with open(output_file) as f:
+            content = f.read()
+        self.assertIn("TESTCACERT1", content)
+        self.assertIn("-----END CERTIFICATE-----", content)
 
 
 class TestBuildCATrustChain(unittest.TestCase):
@@ -559,7 +592,7 @@ class TestVerifyTrustChain(unittest.TestCase):
             stdout=f"{cert_file}: OK"
         )
         # Should not raise
-        verify_trust_chain("openssl", cert_file, "/etc/ssl/certs", ca_trust)
+        verify_trust_chain("openssl", cert_file, RHEL_CA_BUNDLE, ca_trust)
         mock_run.assert_called_once()
 
     @patch('syslog.syslog')
@@ -576,7 +609,7 @@ class TestVerifyTrustChain(unittest.TestCase):
             stdout="error 20 at 0 depth"
         )
         with self.assertRaises(SystemExit) as ctx:
-            verify_trust_chain("openssl", cert_file, "/etc/ssl/certs",
+            verify_trust_chain("openssl", cert_file, RHEL_CA_BUNDLE,
                                ca_trust)
         self.assertEqual(ctx.exception.code, 1)
 
@@ -594,7 +627,7 @@ class TestVerifyTrustChain(unittest.TestCase):
             stdout="some garbage"
         )
         with self.assertRaises(SystemExit) as ctx:
-            verify_trust_chain("openssl", cert_file, "/etc/ssl/certs",
+            verify_trust_chain("openssl", cert_file, RHEL_CA_BUNDLE,
                                ca_trust)
         self.assertEqual(ctx.exception.code, 1)
 
@@ -1150,7 +1183,7 @@ class TestMain(unittest.TestCase):
             '-s', self.signer_path,
             '-i', 'i-abc123',
             '-c', 'expected.signer.com',
-            '-a', '/etc/ssl/certs',
+            '-a', RHEL_CA_BUNDLE,
             '-v', '/tmp/ocsp',
         ]
 
@@ -1193,7 +1226,7 @@ class TestMain(unittest.TestCase):
             '-s', self.signer_path,
             '-i', 'i-abc123',
             '-c', 'expected.signer.com',
-            '-a', '/etc/ssl/certs',
+            '-a', RHEL_CA_BUNDLE,
             '-v', '/tmp/ocsp',
         ]
 
@@ -1227,7 +1260,7 @@ class TestMain(unittest.TestCase):
             '-s', self.signer_path,
             '-i', 'i-abc123',
             '-c', 'expected.signer.com',
-            '-a', '/etc/ssl/certs',
+            '-a', RHEL_CA_BUNDLE,
             '-v', '/tmp/ocsp',
         ]
 
