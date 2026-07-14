@@ -50,7 +50,6 @@ class TestParseArguments(unittest.TestCase):
         test_args = [
             'eic_parse.py',
             '-p', '/tmp/keys',
-            '-o', '/usr/bin/openssl',
             '-d', '/dev/shm/eic-test',
             '-s', self.signer_path,
             '-i', 'i-1234567890abcdef0',
@@ -63,7 +62,6 @@ class TestParseArguments(unittest.TestCase):
             args = parse_arguments()
 
             self.assertEqual(args.keys_path, '/tmp/keys')
-            self.assertEqual(args.openssl, '/usr/bin/openssl')
             self.assertEqual(args.tmpdir, '/dev/shm/eic-test')
             self.assertEqual(args.signer_path, self.signer_path)
             self.assertEqual(args.current_instance_id, 'i-1234567890abcdef0')
@@ -77,7 +75,6 @@ class TestParseArguments(unittest.TestCase):
         test_args = [
             'eic_parse.py',
             '-p', '/tmp/keys',
-            '-o', '/usr/bin/openssl',
             '-d', '/dev/shm/eic-test',
             '-s', self.signer_path,
             '-i', 'i-1234567890abcdef0',
@@ -103,6 +100,7 @@ class TestParseArguments(unittest.TestCase):
         with patch.object(sys, 'argv', test_args):
             with self.assertRaises(SystemExit):
                 parse_arguments()
+
 
 class TestSplitCertChain(unittest.TestCase):
     """Test the split_cert_chain function."""
@@ -1148,7 +1146,6 @@ class TestMain(unittest.TestCase):
         test_args = [
             'eic_parse.py',
             '-p', '/tmp/keys',
-            '-o', '/usr/bin/openssl',
             '-d', self.tmpdir,
             '-s', self.signer_path,
             '-i', 'i-abc123',
@@ -1192,7 +1189,6 @@ class TestMain(unittest.TestCase):
         test_args = [
             'eic_parse.py',
             '-p', '/tmp/keys',
-            '-o', '/usr/bin/openssl',
             '-d', self.tmpdir,
             '-s', self.signer_path,
             '-i', 'i-abc123',
@@ -1227,7 +1223,6 @@ class TestMain(unittest.TestCase):
         test_args = [
             'eic_parse.py',
             '-p', '/tmp/keys',
-            '-o', '/usr/bin/openssl',
             '-d', self.tmpdir,
             '-s', self.signer_path,
             '-i', 'i-abc123',

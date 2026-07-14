@@ -12,6 +12,9 @@ import tempfile
 import time
 
 
+DEFAULT_OPENSSL = "/usr/bin/openssl"
+
+
 def log_info(message):
     syslog.syslog(syslog.LOG_AUTHPRIV | syslog.LOG_INFO, message)
 
@@ -26,7 +29,6 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("-p", dest="keys_path", required=True)
-    parser.add_argument("-o", dest="openssl", required=True)
     parser.add_argument("-d", dest="tmpdir", required=True)
     parser.add_argument("-s", dest="signer_path", required=True,
                         help="Path to PEM file containing the signer certificate chain")
@@ -466,9 +468,10 @@ def process_keys(keys_path, current_instance_id, cur_time,
     return valid_keys
 
 
-def run(keys_path, openssl, tmpdir, signer_path, current_instance_id,
+def run(keys_path, tmpdir, signer_path, current_instance_id,
         expected_cn, ca_path, ocsp_dir_path, expected_key=None):
     """Verify signer chain and SSH keys. Prints valid keys to stdout. Returns exit code."""
+    openssl = DEFAULT_OPENSSL
     log_info("Verifying signer certificate.")
 
     log_info("Splitting the cert chain.")
@@ -561,7 +564,6 @@ def main():
 
     sys.exit(run(
         keys_path=args.keys_path,
-        openssl=args.openssl,
         tmpdir=args.tmpdir,
         signer_path=args.signer_path,
         current_instance_id=args.current_instance_id,

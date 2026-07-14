@@ -305,7 +305,6 @@ def call_parser(keys_file,
 
     exit_code = eic_parse.run(
         keys_path=keys_file,
-        openssl="/usr/bin/openssl",
         tmpdir=userpath,
         signer_path=cert_path,
         current_instance_id=instance_id,
