@@ -6,6 +6,9 @@ import subprocess
 import sys
 import syslog
 
+EXIT_FAILURE = 1
+EXIT_TIMEOUT = 124
+EXIT_NOT_FOUND = 127
 
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9._-]{0,31}$")
 
@@ -24,17 +27,17 @@ def main():
     script = os.path.join(script_dir, "eic_curl.py")
     if not os.path.isfile(script):
         sys.stderr.write(f"Error: {script} not found\n")
-        sys.exit(127)
+        sys.exit(EXIT_NOT_FOUND)
 
     log_info("Checking for username argument.")
     if len(sys.argv) < 2:
         log_info("EC2 Instance Connect was invoked without a user.")
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
     username = sys.argv[1]
 
     if not validate_username(username):
         log_info(f"Invalid username format")
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
 
 
     command = [sys.executable, script] + sys.argv[1:]
@@ -43,7 +46,7 @@ def main():
         result = subprocess.run(command, capture_output=True, timeout=5)
     except subprocess.TimeoutExpired:
         log_info("EC2 Instance Connect timed out.")
-        sys.exit(124)
+        sys.exit(EXIT_TIMEOUT)
 
     if result.stdout:
         sys.stdout.buffer.write(result.stdout)

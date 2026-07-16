@@ -11,6 +11,9 @@ import syslog
 import tempfile
 import time
 
+EXIT_SUCCESS = 0
+EXIT_FAILURE = 1
+EXIT_ERROR = 255
 
 DEFAULT_OPENSSL = "/usr/bin/openssl"
 
@@ -133,7 +136,7 @@ def extract_from_bundle(bundle_path, subject, output_dir):
 def build_ca_trust_chain(cert_files, tmpdir, ca_bundles_dir):
     if len(cert_files) < 2:
         log_info("Certificate chain too short to build trust chain.")
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
     ca_trust_file = os.path.join(tmpdir, "ca-trust.pem")
     shutil.copy(cert_files[1], ca_trust_file)
 
@@ -168,12 +171,12 @@ def verify_trust_chain(openssl_cmd, cert_file, ca_path, ca_trust_file):
                                 check=False, timeout=5)
     except subprocess.TimeoutExpired:
         log_info("openssl verify timed out.")
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
     expected_output = f"{cert_file}: OK"
 
     if result.returncode != 0 or result.stdout.strip() != expected_output:
         log_info("EC2 Instance Connect could not verify the signer trust chain. No keys have been trusted.")
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
 
 
 def get_cert_hash(openssl_cmd, cert):
@@ -246,7 +249,7 @@ def verify_ocsp(openssl_cmd, cert_file, issuer_file, ocsp_dir):
     fingerprint = get_cert_fingerprint(openssl_cmd, cert_file)
     if not fingerprint:
         log_info("Failed to get certificate fingerprint for OCSP verification.")
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
     ocsp_response_file = os.path.join(ocsp_dir, fingerprint)
     try:
         result = subprocess.run(
@@ -262,12 +265,12 @@ def verify_ocsp(openssl_cmd, cert_file, issuer_file, ocsp_dir):
         )
     except subprocess.TimeoutExpired:
         log_info("openssl ocsp timed out.")
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
     expected_start = f"{cert_file}: good"
 
     if result.returncode != 0 or not result.stdout.startswith(expected_start):
         log_info(f"EC2 Instance Connect could not verify that certificate {cname} has not been revoked. No keys have been trusted.")
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
 
 
 def verify_ocsp_chain(openssl_cmd, cert_files, ca_bundles_dir, ocsp_dir):
@@ -496,7 +499,7 @@ def run(keys_path, tmpdir, signer_path, current_instance_id,
     signer_cn = extract_cn(openssl, cert_files[0])
     if signer_cn != expected_cn:
         log_info("EC2 Instance Connect encountered an unrecognised signer certificate. No keys have been trusted.")
-        return 1
+        return EXIT_FAILURE
 
     log_info("Verifying the trust chain.")
     verify_trust_chain(
@@ -521,7 +524,7 @@ def run(keys_path, tmpdir, signer_path, current_instance_id,
     pubkey = get_cert_pubkey(openssl, cert_files[0])
     if not pubkey:
         log_info("EC2 Instance Connect failed to extract the public key from the signer certificate. No keys have been trusted.")
-        return 1
+        return EXIT_FAILURE
     pubkey_file = _make_secure_temp(tmpdir, 'eic-pubkey-')
     with open(pubkey_file, "w") as f:
         f.write(pubkey)
@@ -547,8 +550,8 @@ def run(keys_path, tmpdir, signer_path, current_instance_id,
     if valid_keys:
         for key in valid_keys:
             print(key)
-        return 0
-    return 255
+        return EXIT_SUCCESS
+    return EXIT_ERROR
 
 
 def main():
@@ -560,7 +563,7 @@ def main():
 
     if not os.path.isfile(args.signer_path):
         log_info("Signer certificate file not found.")
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
 
     sys.exit(run(
         keys_path=args.keys_path,

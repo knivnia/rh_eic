@@ -13,6 +13,10 @@ import tempfile
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+EXIT_NOTHING_TO_DO = 0
+EXIT_FAILURE = 1
+EXIT_ERROR = 255
+
 IMDS_URL = "http://169.254.169.254/latest/meta-data"
 IMDS_TOKEN_URL = "http://169.254.169.254/latest/api/token"
 IMDS_TIMEOUT = 3
@@ -64,14 +68,14 @@ def fetch_token():
             token = response.read(MAX_RESPONSE_SIZE + 1).decode("utf-8").strip()
             if len(token) > MAX_RESPONSE_SIZE:
                 log_info("IMDS response exceeds maximum allowed size.")
-                sys.exit(255)
+                sys.exit(EXIT_ERROR)
             if not token:
                 log_info("EC2 Instance Connect failed to get a IMDS token.")
-                sys.exit(255)
+                sys.exit(EXIT_ERROR)
             return token
     except (URLError, HTTPError) as e:
         log_info(f"EC2 Instance Connect failed to establish trust with IMDS: {e}")
-        sys.exit(255)
+        sys.exit(EXIT_ERROR)
 
 
 def fetch_instance_id(url, token):
@@ -81,7 +85,7 @@ def fetch_instance_id(url, token):
             instance_id = response.read(MAX_RESPONSE_SIZE + 1).decode("utf-8").strip()
             if len(instance_id) > MAX_RESPONSE_SIZE:
                 log_info("IMDS response exceeds maximum allowed size.")
-                sys.exit(255)
+                sys.exit(EXIT_ERROR)
             return instance_id
     except (URLError, HTTPError):
         return None
@@ -106,10 +110,10 @@ def verify_ec2_instance(instance_id):
                 return
             else:
                 log_info("EC2 Instance Connect was invoked on a non-instance.")
-                sys.exit(0)
+                sys.exit(EXIT_NOTHING_TO_DO)
         except (IOError, OSError):
             log_info("EC2 Instance Connect failed to verify instance.")
-            sys.exit(0)
+            sys.exit(EXIT_NOTHING_TO_DO)
     elif os.path.isfile(board_asset_tag_path):
         # Nitro instance
         try:
@@ -119,13 +123,13 @@ def verify_ec2_instance(instance_id):
                 return
             else:
                 log_info("Board asset tag does not match instance ID.")
-                sys.exit(0)
+                sys.exit(EXIT_NOTHING_TO_DO)
         except (IOError, OSError):
             log_info("EC2 Instance Connect failed to verify instance.")
-            sys.exit(0)
+            sys.exit(EXIT_NOTHING_TO_DO)
     else:
         log_info("EC2 Instance Connect was invoked on a non-instance.")
-        sys.exit(0)
+        sys.exit(EXIT_NOTHING_TO_DO)
 
 
 def check_active_keys(username, token):
@@ -140,10 +144,10 @@ def check_active_keys(username, token):
             return True
     except HTTPError as e:
         log_info(f"HTTP error {e.code} while checking for active keys.")
-        sys.exit(0)
+        sys.exit(EXIT_NOTHING_TO_DO)
     except URLError:
         log_info("Failed to check for active keys.")
-        sys.exit(0)
+        sys.exit(EXIT_NOTHING_TO_DO)
 
 
 def fetch_and_validate_az(token):
@@ -157,14 +161,14 @@ def fetch_and_validate_az(token):
             zone = response.read(MAX_RESPONSE_SIZE + 1).decode("utf-8").strip()
             if len(zone) > MAX_RESPONSE_SIZE:
                 log_info("IMDS response exceeds maximum allowed size.")
-                sys.exit(255)
+                sys.exit(EXIT_ERROR)
             if not re.match(r"^([a-z]+-){2,3}[0-9][a-z]$", zone):
                 log_info("Invalid availability zone format.")
-                sys.exit(255)
+                sys.exit(EXIT_ERROR)
             return zone
     except (URLError, HTTPError):
         log_info("Failed to fetch availability zone.")
-        sys.exit(255)
+        sys.exit(EXIT_ERROR)
 
 
 def extract_region_from_az(zone):
@@ -185,14 +189,14 @@ def fetch_and_validate_domain(token):
             domain = response.read(MAX_RESPONSE_SIZE + 1).decode("utf-8").strip()
             if len(domain) > MAX_RESPONSE_SIZE:
                 log_info("IMDS response exceeds maximum allowed size.")
-                sys.exit(255)
+                sys.exit(EXIT_ERROR)
             if domain not in VALID_DOMAINS:
                 log_info("EC2 Instance Connect found an invalid domain.")
-                sys.exit(255)
+                sys.exit(EXIT_ERROR)
             return domain
     except (URLError, HTTPError):
         log_info("Failed to fetch domain from IMDS.")
-        sys.exit(255)
+        sys.exit(EXIT_ERROR)
 
 
 def fetch_signer_cert(region, domain, token):
@@ -210,10 +214,10 @@ def fetch_signer_cert(region, domain, token):
             cert = response.read(MAX_RESPONSE_SIZE + 1).decode("utf-8").strip()
             if len(cert) > MAX_RESPONSE_SIZE:
                 log_info("IMDS response exceeds maximum allowed size.")
-                sys.exit(255)
+                sys.exit(EXIT_ERROR)
             if not cert:
                 log_info("Failed to fetch the certificate.")
-                sys.exit(1)
+                sys.exit(EXIT_FAILURE)
             cert_path = os.path.join(userpath, "signer-cert.pem")
             with open(cert_path, "w") as f:
                 f.write(cert + "\n")
@@ -221,7 +225,7 @@ def fetch_signer_cert(region, domain, token):
             return expected_signer, userpath, cert_path
     except (URLError, HTTPError) as e:
         log_info(f"Failed to fetch the signer certificate: {e}.")
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
 
 
 def fetch_ocsp_staples(userpath, token):
@@ -235,16 +239,16 @@ def fetch_ocsp_staples(userpath, token):
             staples_paths = response.read(MAX_RESPONSE_SIZE + 1).decode("utf-8").strip()
             if len(staples_paths) > MAX_RESPONSE_SIZE:
                 log_info("IMDS response exceeds maximum allowed size.")
-                sys.exit(255)
+                sys.exit(EXIT_ERROR)
     except (URLError, HTTPError) as e:
         log_info(f"Failed to fetch OCSP staple paths: {e}.")
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
 
     ocsp_path = tempfile.mkdtemp(prefix='eic-ocsp-', dir=userpath)
     for path in staples_paths.split():
         if '/' in path or '\\' in path or path.startswith('.'):
             log_info(f"Invalid OCSP staple path component: {path}")
-            sys.exit(1)
+            sys.exit(EXIT_FAILURE)
         safe_path = os.path.basename(path)
         staple_url = f"{IMDS_URL}/managed-ssh-keys/signer-ocsp/{path}"
         try:
@@ -256,19 +260,19 @@ def fetch_ocsp_staples(userpath, token):
                 decoded_data = base64.b64decode(response.read(MAX_RESPONSE_SIZE + 1))
                 if len(decoded_data) > MAX_RESPONSE_SIZE:
                     log_info("IMDS response exceeds maximum allowed size.")
-                    sys.exit(255)
+                    sys.exit(EXIT_ERROR)
                 staple_file = os.path.join(ocsp_path, safe_path)
                 if not os.path.realpath(staple_file).startswith(
                     os.path.realpath(ocsp_path)
                 ):
                     log_info("OCSP staple path traversal detected.")
-                    sys.exit(1)
+                    sys.exit(EXIT_FAILURE)
                 with open(staple_file, "wb") as file:
                     file.write(decoded_data)
                 os.chmod(staple_file, 0o400)
         except (URLError, HTTPError) as e:
             log_info(f"Failed to fetch OCSP staple {path}: {e}.")
-            sys.exit(1)
+            sys.exit(EXIT_FAILURE)
     return ocsp_path
 
 
@@ -284,14 +288,14 @@ def fetch_ssh_keys(username, userpath, token):
             keys_data = response.read(MAX_RESPONSE_SIZE + 1).decode("utf-8")
             if len(keys_data) > MAX_RESPONSE_SIZE:
                 log_info("IMDS response exceeds maximum allowed size.")
-                sys.exit(255)
+                sys.exit(EXIT_ERROR)
             with open(keys_file, 'w') as file:
                 file.write(keys_data)
             os.chmod(keys_file, 0o600)
             return keys_file
     except (URLError, HTTPError) as e:
         log_info(f"Failed to fetch SSH keys: {e}.")
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
 
 
 def call_parser(keys_file,
@@ -323,12 +327,12 @@ def main():
 
     if len(sys.argv) < 2:
         log_info("EC2 Instance Connect was invoked without a user.")
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
     username = sys.argv[1]
 
     log_info("Verifying username.")
     if not check_user_exists(username):
-        sys.exit(0)
+        sys.exit(EXIT_NOTHING_TO_DO)
 
     log_info("Fetching token from IMDS.")
     token = fetch_token()
@@ -339,7 +343,7 @@ def main():
     log_info("Verifying instance ID.")
     if not verify_instance_id(instance_id):
         log_info("Invalid instance ID.")
-        sys.exit(0)
+        sys.exit(EXIT_NOTHING_TO_DO)
 
     log_info("Verifying EC2 instance.")
     verify_ec2_instance(instance_id)
