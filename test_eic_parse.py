@@ -439,6 +439,22 @@ class TestGetCertHash(unittest.TestCase):
         self.assertIsNotNone(hash_result)
         self.assertTrue(len(hash_result) > 0)
 
+    def test_get_cert_hash_invalid_cert_returns_none(self):
+        """Failed openssl invocations must not return empty/garbage as a hash."""
+        import shutil as sh
+
+        if not sh.which("openssl"):
+            self.skipTest("openssl not available")
+
+        self.cert_path.write_text("not a certificate\n")
+        self.assertIsNone(get_cert_hash("openssl", self.cert_path))
+
+    @patch('eic_parse.subprocess.run')
+    def test_get_cert_hash_nonzero_returncode(self, mock_run):
+        """Non-zero openssl returncode must yield None, even if stdout is set."""
+        mock_run.return_value = MagicMock(returncode=1, stdout="deadbeef\n")
+        self.assertIsNone(get_cert_hash("openssl", self.cert_path))
+
 
 class TestGetCertFingerprint(unittest.TestCase):
     """Test the get_cert_fingerprint function."""
@@ -473,6 +489,25 @@ class TestGetCertFingerprint(unittest.TestCase):
         # SHA1 fingerprint without colons should be 40 hex chars
         self.assertEqual(len(fp), 40)
 
+    def test_get_cert_fingerprint_invalid_cert_returns_none(self):
+        """Failed openssl invocations must not be treated as a valid fingerprint."""
+        import shutil as sh
+
+        if not sh.which("openssl"):
+            self.skipTest("openssl not available")
+
+        self.cert_path.write_text("not a certificate\n")
+        self.assertIsNone(get_cert_fingerprint("openssl", self.cert_path))
+
+    @patch('eic_parse.subprocess.run')
+    def test_get_cert_fingerprint_nonzero_returncode(self, mock_run):
+        """Non-zero openssl returncode must yield None."""
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="SHA1 Fingerprint=AA:BB:CC:DD\n",
+        )
+        self.assertIsNone(get_cert_fingerprint("openssl", self.cert_path))
+
 
 class TestGetCertPubkey(unittest.TestCase):
     """Test the get_cert_pubkey function."""
@@ -505,6 +540,25 @@ class TestGetCertPubkey(unittest.TestCase):
         pubkey = get_cert_pubkey("openssl", self.cert_path)
         self.assertIsNotNone(pubkey)
         self.assertIn("BEGIN PUBLIC KEY", pubkey)
+
+    def test_get_cert_pubkey_invalid_cert_returns_none(self):
+        """Failed openssl invocations must not return empty/garbage as a pubkey."""
+        import shutil as sh
+
+        if not sh.which("openssl"):
+            self.skipTest("openssl not available")
+
+        self.cert_path.write_text("not a certificate\n")
+        self.assertIsNone(get_cert_pubkey("openssl", self.cert_path))
+
+    @patch('eic_parse.subprocess.run')
+    def test_get_cert_pubkey_nonzero_returncode(self, mock_run):
+        """Non-zero openssl returncode must yield None, even if stdout is set."""
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="-----BEGIN PUBLIC KEY-----\nfake\n-----END PUBLIC KEY-----\n",
+        )
+        self.assertIsNone(get_cert_pubkey("openssl", self.cert_path))
 
 
 class TestIsCertTrusted(unittest.TestCase):

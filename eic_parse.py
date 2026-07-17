@@ -191,7 +191,10 @@ def get_cert_hash(openssl_cmd, cert):
     except subprocess.TimeoutExpired:
         log_info("openssl x509 timed out getting cert hash.")
         return None
-    return result.stdout.strip()
+    if result.returncode != 0:
+        return None
+    cert_hash = result.stdout.strip()
+    return cert_hash or None
 
 
 def get_cert_fingerprint(openssl_cmd, cert):
@@ -206,6 +209,8 @@ def get_cert_fingerprint(openssl_cmd, cert):
         )
     except subprocess.TimeoutExpired:
         log_info("openssl x509 timed out getting fingerprint.")
+        return None
+    if result.returncode != 0:
         return None
     match = re.search(r"SHA1\s+Fingerprint\s*=\s*(.+)", result.stdout, re.IGNORECASE)
     if match:
@@ -225,7 +230,10 @@ def get_cert_pubkey(openssl_cmd, cert):
     except subprocess.TimeoutExpired:
         log_info("openssl x509 timed out extracting public key.")
         return None
-    return result.stdout.strip()
+    if result.returncode != 0:
+        return None
+    pubkey = result.stdout.strip()
+    return pubkey or None
 
 
 def is_cert_trusted(openssl_cmd, cert_file, trusted_cert_file):
