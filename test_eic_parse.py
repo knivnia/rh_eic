@@ -1269,6 +1269,30 @@ class TestMain(unittest.TestCase):
                 main()
             self.assertEqual(ctx.exception.code, 1)
 
+    @patch('syslog.syslog')
+    @patch('eic_parse.build_ca_bundles_dir')
+    @patch('eic_parse.split_cert_chain', return_value=[])
+    @patch('os.umask')
+    def test_main_empty_cert_chain_exits_1(self, _mock_umask, mock_split,
+                                           mock_bundles, _mock_syslog):
+        """main() should exit 1 when the signer cert chain is empty."""
+        test_args = [
+            'eic_parse.py',
+            '-p', '/tmp/keys',
+            '-d', self.tmpdir,
+            '-s', self.signer_path,
+            '-i', 'i-abc123',
+            '-c', 'expected.signer.com',
+            '-a', RHEL_CA_BUNDLE,
+            '-v', '/tmp/ocsp',
+        ]
+
+        with patch.object(sys, 'argv', test_args):
+            with self.assertRaises(SystemExit) as ctx:
+                main()
+            self.assertEqual(ctx.exception.code, 1)
+        mock_bundles.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

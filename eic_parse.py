@@ -479,6 +479,9 @@ def run(keys_path, tmpdir, signer_path, current_instance_id,
 
     log_info("Splitting the cert chain.")
     cert_files = split_cert_chain(signer_path, tmpdir)
+    if not cert_files:
+        log_info("EC2 Instance Connect signer certificate chain is empty. No keys have been trusted.")
+        return EXIT_FAILURE
 
     log_info("Building CA bundles dir.")
     ca_bundles_dir = build_ca_bundles_dir(
