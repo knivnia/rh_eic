@@ -62,6 +62,11 @@ class TestExtractRegionFromAz(unittest.TestCase):
         self.assertEqual(eic_curl.extract_region_from_az('cn-north-1b'),
                          'cn-north-1')
 
+    def test_invalid_az_returns_none(self):
+        self.assertIsNone(eic_curl.extract_region_from_az(''))
+        self.assertIsNone(eic_curl.extract_region_from_az('not-a-zone'))
+        self.assertIsNone(eic_curl.extract_region_from_az('123'))
+
 
 class TestCheckUserExists(unittest.TestCase):
 
@@ -233,6 +238,14 @@ class TestFetchAndValidateDomain(unittest.TestCase):
 
 
 class TestFetchSignerCert(unittest.TestCase):
+
+    @patch('syslog.syslog')
+    def test_empty_region_exits_255(self, _mock_syslog):
+        for region in (None, ''):
+            with self.subTest(region=region):
+                with self.assertRaises(SystemExit) as ctx:
+                    eic_curl.fetch_signer_cert(region, 'amazonaws.com', 'tok')
+                self.assertEqual(ctx.exception.code, 255)
 
     @patch('syslog.syslog')
     @patch('eic_curl.urlopen')

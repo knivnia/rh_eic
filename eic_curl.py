@@ -200,6 +200,9 @@ def fetch_and_validate_domain(token):
 
 
 def fetch_signer_cert(region, domain, token):
+    if not region:
+        log_info("Missing region; refusing to build signer hostname.")
+        sys.exit(EXIT_ERROR)
     expected_signer = f"managed-ssh-signer.{region}.{domain}"
     userpath = tempfile.mkdtemp(prefix='eic-')
     register_temp_dir(userpath)
@@ -356,6 +359,9 @@ def main():
     zone = fetch_and_validate_az(token)
 
     region = extract_region_from_az(zone)
+    if not region:
+        log_info("Failed to extract region from availability zone.")
+        sys.exit(EXIT_ERROR)
 
     log_info("Validating region and domain.")
     domain = fetch_and_validate_domain(token)
