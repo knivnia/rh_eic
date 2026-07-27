@@ -309,7 +309,7 @@ def call_parser(keys_file,
                 ca_path,
                 ocsp_path,
                 fingerprint=None):
-    import eic_parse
+    from . import eic_parse
 
     exit_code = eic_parse.run(
         keys_path=keys_file,

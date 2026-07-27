@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch, mock_open
 
 RHEL_CA_BUNDLE = "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"
 
-from eic_parse import (
+from ec2_instance_connect_rhel.eic_parse import (
     parse_arguments,
     split_cert_chain,
     build_ca_bundles_dir,
@@ -50,7 +50,7 @@ class TestParseArguments(unittest.TestCase):
     def test_all_required_args(self):
         """Test parsing with all required arguments provided."""
         test_args = [
-            'eic_parse.py',
+            'ec2_instance_connect_rhel.eic_parse.py',
             '-p', '/tmp/keys',
             '-d', '/dev/shm/eic-test',
             '-s', self.signer_path,
@@ -75,7 +75,7 @@ class TestParseArguments(unittest.TestCase):
     def test_with_optional_fingerprint(self):
         """Test parsing with optional fingerprint argument."""
         test_args = [
-            'eic_parse.py',
+            'ec2_instance_connect_rhel.eic_parse.py',
             '-p', '/tmp/keys',
             '-d', '/dev/shm/eic-test',
             '-s', self.signer_path,
@@ -94,7 +94,7 @@ class TestParseArguments(unittest.TestCase):
     def test_missing_required_arg(self):
         """Test that missing required argument causes exit."""
         test_args = [
-            'eic_parse.py',
+            'ec2_instance_connect_rhel.eic_parse.py',
             '-p', '/tmp/keys'
             # Missing other required args
         ]
@@ -317,7 +317,7 @@ class TestBuildCABundlesDir(unittest.TestCase):
         self.assertTrue(os.path.exists(result))
         self.assertTrue(os.path.isdir(result))
 
-    @patch('eic_parse.extract_cn', return_value='Test CA')
+    @patch('ec2_instance_connect_rhel.eic_parse.extract_cn', return_value='Test CA')
     def test_with_bundle_file(self, _mock_extract_cn):
         """Test with a PEM bundle file instead of a certificate directory."""
         bundle_path = os.path.join(self.tmpdir, "tls-ca-bundle.pem")
@@ -449,7 +449,7 @@ class TestGetCertHash(unittest.TestCase):
         self.cert_path.write_text("not a certificate\n")
         self.assertIsNone(get_cert_hash("openssl", self.cert_path))
 
-    @patch('eic_parse.subprocess.run')
+    @patch('ec2_instance_connect_rhel.eic_parse.subprocess.run')
     def test_get_cert_hash_nonzero_returncode(self, mock_run):
         """Non-zero openssl returncode must yield None, even if stdout is set."""
         mock_run.return_value = MagicMock(returncode=1, stdout="deadbeef\n")
@@ -499,7 +499,7 @@ class TestGetCertFingerprint(unittest.TestCase):
         self.cert_path.write_text("not a certificate\n")
         self.assertIsNone(get_cert_fingerprint("openssl", self.cert_path))
 
-    @patch('eic_parse.subprocess.run')
+    @patch('ec2_instance_connect_rhel.eic_parse.subprocess.run')
     def test_get_cert_fingerprint_nonzero_returncode(self, mock_run):
         """Non-zero openssl returncode must yield None."""
         mock_run.return_value = MagicMock(
@@ -551,7 +551,7 @@ class TestGetCertPubkey(unittest.TestCase):
         self.cert_path.write_text("not a certificate\n")
         self.assertIsNone(get_cert_pubkey("openssl", self.cert_path))
 
-    @patch('eic_parse.subprocess.run')
+    @patch('ec2_instance_connect_rhel.eic_parse.subprocess.run')
     def test_get_cert_pubkey_nonzero_returncode(self, mock_run):
         """Non-zero openssl returncode must yield None, even if stdout is set."""
         mock_run.return_value = MagicMock(
@@ -814,9 +814,9 @@ class TestVerifyOcspChain(unittest.TestCase):
         shutil.rmtree(self.tmpdir)
 
     @patch('syslog.syslog')
-    @patch('eic_parse.verify_ocsp')
-    @patch('eic_parse.is_cert_trusted', return_value=False)
-    @patch('eic_parse.extract_cn', return_value="SomeCN")
+    @patch('ec2_instance_connect_rhel.eic_parse.verify_ocsp')
+    @patch('ec2_instance_connect_rhel.eic_parse.is_cert_trusted', return_value=False)
+    @patch('ec2_instance_connect_rhel.eic_parse.extract_cn', return_value="SomeCN")
     def test_iterates_chain(self, _mock_cn, _mock_trusted,
                             mock_verify, _mock_syslog):
         """Should call verify_ocsp for each cert pair in the chain."""
@@ -837,9 +837,9 @@ class TestVerifyOcspChain(unittest.TestCase):
         self.assertEqual(mock_verify.call_count, 2)
 
     @patch('syslog.syslog')
-    @patch('eic_parse.verify_ocsp')
-    @patch('eic_parse.is_cert_trusted', return_value=True)
-    @patch('eic_parse.extract_cn', return_value="TrustedCN")
+    @patch('ec2_instance_connect_rhel.eic_parse.verify_ocsp')
+    @patch('ec2_instance_connect_rhel.eic_parse.is_cert_trusted', return_value=True)
+    @patch('ec2_instance_connect_rhel.eic_parse.extract_cn', return_value="TrustedCN")
     def test_stops_at_trusted_cert(self, _mock_cn, _mock_trusted,
                                    mock_verify, _mock_syslog):
         """Should stop verifying when a trusted cert is found."""
@@ -1073,8 +1073,8 @@ class TestProcessKeys(unittest.TestCase):
         shutil.rmtree(self.tmpdir)
 
     @patch('syslog.syslog')
-    @patch('eic_parse.verify_key_signature', return_value=True)
-    @patch('eic_parse.get_ssh_key_fingerprint',
+    @patch('ec2_instance_connect_rhel.eic_parse.verify_key_signature', return_value=True)
+    @patch('ec2_instance_connect_rhel.eic_parse.get_ssh_key_fingerprint',
            return_value='SHA256:testfp')
     def test_valid_key_accepted(self, _mock_fp, _mock_sig, _mock_syslog):
         """A valid, non-expired key with matching instance ID is accepted."""
@@ -1095,8 +1095,8 @@ class TestProcessKeys(unittest.TestCase):
         self.assertEqual(result[0], "ssh-rsa AAAA testkey")
 
     @patch('syslog.syslog')
-    @patch('eic_parse.verify_key_signature', return_value=True)
-    @patch('eic_parse.get_ssh_key_fingerprint',
+    @patch('ec2_instance_connect_rhel.eic_parse.verify_key_signature', return_value=True)
+    @patch('ec2_instance_connect_rhel.eic_parse.get_ssh_key_fingerprint',
            return_value='SHA256:testfp')
     def test_expired_key_rejected(self, _mock_fp, _mock_sig, _mock_syslog):
         """An expired key (timestamp in the past) is rejected."""
@@ -1116,8 +1116,8 @@ class TestProcessKeys(unittest.TestCase):
         self.assertEqual(len(result), 0)
 
     @patch('syslog.syslog')
-    @patch('eic_parse.verify_key_signature', return_value=True)
-    @patch('eic_parse.get_ssh_key_fingerprint',
+    @patch('ec2_instance_connect_rhel.eic_parse.verify_key_signature', return_value=True)
+    @patch('ec2_instance_connect_rhel.eic_parse.get_ssh_key_fingerprint',
            return_value='SHA256:testfp')
     def test_wrong_instance_id_rejected(self, _mock_fp, _mock_sig,
                                         _mock_syslog):
@@ -1138,8 +1138,8 @@ class TestProcessKeys(unittest.TestCase):
         self.assertEqual(len(result), 0)
 
     @patch('syslog.syslog')
-    @patch('eic_parse.verify_key_signature', return_value=False)
-    @patch('eic_parse.get_ssh_key_fingerprint',
+    @patch('ec2_instance_connect_rhel.eic_parse.verify_key_signature', return_value=False)
+    @patch('ec2_instance_connect_rhel.eic_parse.get_ssh_key_fingerprint',
            return_value='SHA256:testfp')
     def test_bad_signature_rejected(self, _mock_fp, _mock_sig, _mock_syslog):
         """A key with an invalid signature is rejected."""
@@ -1159,8 +1159,8 @@ class TestProcessKeys(unittest.TestCase):
         self.assertEqual(len(result), 0)
 
     @patch('syslog.syslog')
-    @patch('eic_parse.verify_key_signature', return_value=True)
-    @patch('eic_parse.get_ssh_key_fingerprint',
+    @patch('ec2_instance_connect_rhel.eic_parse.verify_key_signature', return_value=True)
+    @patch('ec2_instance_connect_rhel.eic_parse.get_ssh_key_fingerprint',
            return_value='SHA256:wrongfp')
     def test_fingerprint_mismatch_rejected(self, _mock_fp, _mock_sig,
                                            _mock_syslog):
@@ -1204,14 +1204,14 @@ class TestMain(unittest.TestCase):
         shutil.rmtree(self.tmpdir)
 
     @patch('syslog.syslog')
-    @patch('eic_parse.process_keys', return_value=['ssh-rsa AAAA key'])
-    @patch('eic_parse.get_cert_pubkey', return_value='BEGIN PUBLIC KEY')
-    @patch('eic_parse.verify_ocsp_chain')
-    @patch('eic_parse.verify_trust_chain')
-    @patch('eic_parse.extract_cn', return_value='expected.signer.com')
-    @patch('eic_parse.build_ca_trust_chain')
-    @patch('eic_parse.build_ca_bundles_dir')
-    @patch('eic_parse.split_cert_chain')
+    @patch('ec2_instance_connect_rhel.eic_parse.process_keys', return_value=['ssh-rsa AAAA key'])
+    @patch('ec2_instance_connect_rhel.eic_parse.get_cert_pubkey', return_value='BEGIN PUBLIC KEY')
+    @patch('ec2_instance_connect_rhel.eic_parse.verify_ocsp_chain')
+    @patch('ec2_instance_connect_rhel.eic_parse.verify_trust_chain')
+    @patch('ec2_instance_connect_rhel.eic_parse.extract_cn', return_value='expected.signer.com')
+    @patch('ec2_instance_connect_rhel.eic_parse.build_ca_trust_chain')
+    @patch('ec2_instance_connect_rhel.eic_parse.build_ca_bundles_dir')
+    @patch('ec2_instance_connect_rhel.eic_parse.split_cert_chain')
     @patch('shutil.rmtree')
     @patch('os.umask')
     @patch('time.time', return_value=1700000000.0)
@@ -1231,7 +1231,7 @@ class TestMain(unittest.TestCase):
         mock_trust.return_value = Path(self.tmpdir) / "ca-trust.pem"
 
         test_args = [
-            'eic_parse.py',
+            'ec2_instance_connect_rhel.eic_parse.py',
             '-p', '/tmp/keys',
             '-d', self.tmpdir,
             '-s', self.signer_path,
@@ -1247,14 +1247,14 @@ class TestMain(unittest.TestCase):
             self.assertEqual(ctx.exception.code, 0)
 
     @patch('syslog.syslog')
-    @patch('eic_parse.process_keys', return_value=[])
-    @patch('eic_parse.get_cert_pubkey', return_value='BEGIN PUBLIC KEY')
-    @patch('eic_parse.verify_ocsp_chain')
-    @patch('eic_parse.verify_trust_chain')
-    @patch('eic_parse.extract_cn', return_value='expected.signer.com')
-    @patch('eic_parse.build_ca_trust_chain')
-    @patch('eic_parse.build_ca_bundles_dir')
-    @patch('eic_parse.split_cert_chain')
+    @patch('ec2_instance_connect_rhel.eic_parse.process_keys', return_value=[])
+    @patch('ec2_instance_connect_rhel.eic_parse.get_cert_pubkey', return_value='BEGIN PUBLIC KEY')
+    @patch('ec2_instance_connect_rhel.eic_parse.verify_ocsp_chain')
+    @patch('ec2_instance_connect_rhel.eic_parse.verify_trust_chain')
+    @patch('ec2_instance_connect_rhel.eic_parse.extract_cn', return_value='expected.signer.com')
+    @patch('ec2_instance_connect_rhel.eic_parse.build_ca_trust_chain')
+    @patch('ec2_instance_connect_rhel.eic_parse.build_ca_bundles_dir')
+    @patch('ec2_instance_connect_rhel.eic_parse.split_cert_chain')
     @patch('shutil.rmtree')
     @patch('os.umask')
     @patch('time.time', return_value=1700000000.0)
@@ -1274,7 +1274,7 @@ class TestMain(unittest.TestCase):
         mock_trust.return_value = Path(self.tmpdir) / "ca-trust.pem"
 
         test_args = [
-            'eic_parse.py',
+            'ec2_instance_connect_rhel.eic_parse.py',
             '-p', '/tmp/keys',
             '-d', self.tmpdir,
             '-s', self.signer_path,
@@ -1290,10 +1290,10 @@ class TestMain(unittest.TestCase):
             self.assertEqual(ctx.exception.code, 255)
 
     @patch('syslog.syslog')
-    @patch('eic_parse.extract_cn', return_value='wrong.signer.com')
-    @patch('eic_parse.build_ca_trust_chain')
-    @patch('eic_parse.build_ca_bundles_dir')
-    @patch('eic_parse.split_cert_chain')
+    @patch('ec2_instance_connect_rhel.eic_parse.extract_cn', return_value='wrong.signer.com')
+    @patch('ec2_instance_connect_rhel.eic_parse.build_ca_trust_chain')
+    @patch('ec2_instance_connect_rhel.eic_parse.build_ca_bundles_dir')
+    @patch('ec2_instance_connect_rhel.eic_parse.split_cert_chain')
     @patch('os.umask')
     def test_main_cn_mismatch_exits_1(self, _mock_umask, mock_split,
                                       mock_bundles, mock_trust,
@@ -1308,7 +1308,7 @@ class TestMain(unittest.TestCase):
         mock_trust.return_value = Path(self.tmpdir) / "ca-trust.pem"
 
         test_args = [
-            'eic_parse.py',
+            'ec2_instance_connect_rhel.eic_parse.py',
             '-p', '/tmp/keys',
             '-d', self.tmpdir,
             '-s', self.signer_path,
@@ -1324,14 +1324,14 @@ class TestMain(unittest.TestCase):
             self.assertEqual(ctx.exception.code, 1)
 
     @patch('syslog.syslog')
-    @patch('eic_parse.build_ca_bundles_dir')
-    @patch('eic_parse.split_cert_chain', return_value=[])
+    @patch('ec2_instance_connect_rhel.eic_parse.build_ca_bundles_dir')
+    @patch('ec2_instance_connect_rhel.eic_parse.split_cert_chain', return_value=[])
     @patch('os.umask')
     def test_main_empty_cert_chain_exits_1(self, _mock_umask, mock_split,
                                            mock_bundles, _mock_syslog):
         """main() should exit 1 when the signer cert chain is empty."""
         test_args = [
-            'eic_parse.py',
+            'ec2_instance_connect_rhel.eic_parse.py',
             '-p', '/tmp/keys',
             '-d', self.tmpdir,
             '-s', self.signer_path,

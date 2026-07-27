@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ec2-instance-connect-rhel"
+version = "0.0.1"
+description = "EC2 Instance Connect for RHEL - retrieves and validates SSH keys from AWS IMDS"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">= 3.9"
+authors = [
+    { name = "Red Hat Cloud Experience", email = "cloud-experience@redhat.com" },
+]
+classifiers = [
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+
+]
+
+[project.scripts]
+eic-run = "ec2_instance_connect_rhel.eic_run:main"
+eic-curl = "ec2_instance_connect_rhel.eic_curl:main"
+eic-parse = "ec2_instance_connect_rhel.eic_parse:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

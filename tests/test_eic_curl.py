@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, call, mock_open, patch
 # module-level ``log_info`` never writes to the real system log.
 # ---------------------------------------------------------------------------
 with patch('syslog.syslog'):
-    import eic_curl
+    from ec2_instance_connect_rhel import eic_curl
 
 
 # ---------------------------------------------------------------------------
@@ -97,14 +97,14 @@ class TestVerifyInstanceId(unittest.TestCase):
 class TestFetchToken(unittest.TestCase):
 
     @patch('syslog.syslog')
-    @patch('eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
     def test_success(self, mock_urlopen, _mock_syslog):
         mock_urlopen.return_value = _imds_response('tok-abc123')
         token = eic_curl.fetch_token()
         self.assertEqual(token, 'tok-abc123')
 
     @patch('syslog.syslog')
-    @patch('eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
     def test_empty_token_exits_255(self, mock_urlopen, _mock_syslog):
         mock_urlopen.return_value = _imds_response('')
         with self.assertRaises(SystemExit) as ctx:
@@ -112,7 +112,7 @@ class TestFetchToken(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 255)
 
     @patch('syslog.syslog')
-    @patch('eic_curl.urlopen', side_effect=eic_curl.URLError('unreachable'))
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen', side_effect=eic_curl.URLError('unreachable'))
     def test_urlerror_exits_255(self, _mock_urlopen, _mock_syslog):
         with self.assertRaises(SystemExit) as ctx:
             eic_curl.fetch_token()
@@ -121,13 +121,13 @@ class TestFetchToken(unittest.TestCase):
 
 class TestFetchInstanceId(unittest.TestCase):
 
-    @patch('eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
     def test_success(self, mock_urlopen):
         mock_urlopen.return_value = _imds_response('i-abcdef0123456789')
         result = eic_curl.fetch_instance_id('http://imds/instance-id/', 'tok')
         self.assertEqual(result, 'i-abcdef0123456789')
 
-    @patch('eic_curl.urlopen', side_effect=eic_curl.URLError('err'))
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen', side_effect=eic_curl.URLError('err'))
     def test_failure_returns_none(self, _mock):
         result = eic_curl.fetch_instance_id('http://imds/instance-id/', 'tok')
         self.assertIsNone(result)
@@ -180,13 +180,13 @@ class TestVerifyEc2Instance(unittest.TestCase):
 class TestCheckActiveKeys(unittest.TestCase):
 
     @patch('syslog.syslog')
-    @patch('eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
     def test_keys_present(self, mock_urlopen, _mock_syslog):
         mock_urlopen.return_value = _imds_response('')
         self.assertTrue(eic_curl.check_active_keys('testuser', 'tok'))
 
     @patch('syslog.syslog')
-    @patch('eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
     def test_404_exits_0(self, mock_urlopen, _mock_syslog):
         mock_urlopen.side_effect = eic_curl.HTTPError(
             'url', 404, 'Not Found', {}, None)
@@ -198,13 +198,13 @@ class TestCheckActiveKeys(unittest.TestCase):
 class TestFetchAndValidateAz(unittest.TestCase):
 
     @patch('syslog.syslog')
-    @patch('eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
     def test_valid_az(self, mock_urlopen, _mock_syslog):
         mock_urlopen.return_value = _imds_response('us-east-1a')
         self.assertEqual(eic_curl.fetch_and_validate_az('tok'), 'us-east-1a')
 
     @patch('syslog.syslog')
-    @patch('eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
     def test_invalid_az_exits_255(self, mock_urlopen, _mock_syslog):
         mock_urlopen.return_value = _imds_response('INVALID-ZONE')
         with self.assertRaises(SystemExit) as ctx:
@@ -215,14 +215,14 @@ class TestFetchAndValidateAz(unittest.TestCase):
 class TestFetchAndValidateDomain(unittest.TestCase):
 
     @patch('syslog.syslog')
-    @patch('eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
     def test_valid_domain(self, mock_urlopen, _mock_syslog):
         mock_urlopen.return_value = _imds_response('amazonaws.com')
         self.assertEqual(
             eic_curl.fetch_and_validate_domain('tok'), 'amazonaws.com')
 
     @patch('syslog.syslog')
-    @patch('eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
     def test_invalid_domain_exits_255(self, mock_urlopen, _mock_syslog):
         mock_urlopen.return_value = _imds_response('evil.com')
         with self.assertRaises(SystemExit) as ctx:
@@ -230,7 +230,7 @@ class TestFetchAndValidateDomain(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 255)
 
     @patch('syslog.syslog')
-    @patch('eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
     def test_china_domain(self, mock_urlopen, _mock_syslog):
         mock_urlopen.return_value = _imds_response('amazonaws.com.cn')
         self.assertEqual(
@@ -248,8 +248,8 @@ class TestFetchSignerCert(unittest.TestCase):
                 self.assertEqual(ctx.exception.code, 255)
 
     @patch('syslog.syslog')
-    @patch('eic_curl.urlopen')
-    @patch('eic_curl.register_temp_dir')
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_curl.register_temp_dir')
     def test_success(self, _mock_register, mock_urlopen, _mock_syslog):
         cert_pem = '-----BEGIN CERTIFICATE-----\nDATA\n-----END CERTIFICATE-----'
         mock_urlopen.return_value = _imds_response(cert_pem)
@@ -266,8 +266,8 @@ class TestFetchSignerCert(unittest.TestCase):
                 self.assertEqual(f.read().strip(), cert_pem)
 
     @patch('syslog.syslog')
-    @patch('eic_curl.urlopen')
-    @patch('eic_curl.register_temp_dir')
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_curl.register_temp_dir')
     def test_uses_default_temp_dir_not_dev_shm(self, _mock_register,
                                              mock_urlopen, _mock_syslog):
         mock_urlopen.return_value = _imds_response(
@@ -279,9 +279,9 @@ class TestFetchSignerCert(unittest.TestCase):
                 self.assertNotIn('dir', mock_mkdtemp.call_args.kwargs)
 
     @patch('syslog.syslog')
-    @patch('eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
     @patch('tempfile.mkdtemp', return_value='/tmp/eic-test')
-    @patch('eic_curl.register_temp_dir')
+    @patch('ec2_instance_connect_rhel.eic_curl.register_temp_dir')
     def test_empty_cert_exits_1(self, _mock_register, _mock_mkdtemp,
                                 mock_urlopen, _mock_syslog):
         mock_urlopen.return_value = _imds_response('')
@@ -294,7 +294,7 @@ class TestFetchOcspStaples(unittest.TestCase):
 
     @patch('syslog.syslog')
     @patch('os.chmod')
-    @patch('eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
     def test_fetches_and_writes_staples(self, mock_urlopen, _mock_chmod,
                                        _mock_syslog):
         staple_data = base64.b64encode(b'OCSP_DATA').decode()
@@ -321,7 +321,7 @@ class TestFetchOcspStaples(unittest.TestCase):
 class TestFetchSshKeys(unittest.TestCase):
 
     @patch('syslog.syslog')
-    @patch('eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
     def test_writes_keys_file(self, mock_urlopen, _mock_syslog):
         key_data = 'ssh-rsa AAAA testkey\nsig==\n'
         mock_urlopen.return_value = _imds_response(key_data)
@@ -336,7 +336,7 @@ class TestFetchSshKeys(unittest.TestCase):
 class TestCallParser(unittest.TestCase):
 
     @patch('syslog.syslog')
-    @patch('eic_parse.run', return_value=0)
+    @patch('ec2_instance_connect_rhel.eic_parse.run', return_value=0)
     def test_calls_eic_parse_and_exits(self, mock_run, _mock_syslog):
         with self.assertRaises(SystemExit) as ctx:
             eic_curl.call_parser(
@@ -350,7 +350,7 @@ class TestCallParser(unittest.TestCase):
                          '/tmp/signer-cert.pem')
 
     @patch('syslog.syslog')
-    @patch('eic_parse.run', return_value=255)
+    @patch('ec2_instance_connect_rhel.eic_parse.run', return_value=255)
     def test_propagates_parser_exit_code(self, mock_run, _mock_syslog):
         with self.assertRaises(SystemExit) as ctx:
             eic_curl.call_parser(
@@ -361,7 +361,7 @@ class TestCallParser(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 255)
 
     @patch('syslog.syslog')
-    @patch('eic_parse.run', return_value=0)
+    @patch('ec2_instance_connect_rhel.eic_parse.run', return_value=0)
     def test_fingerprint_passed_when_provided(self, mock_run, _mock_syslog):
         with self.assertRaises(SystemExit):
             eic_curl.call_parser(
@@ -378,10 +378,10 @@ class TestMainIntegration(unittest.TestCase):
     """Integration test: exercise main() with all external calls mocked."""
 
     @patch('syslog.syslog')
-    @patch('eic_parse.run', return_value=0)
-    @patch('eic_curl.urlopen')
+    @patch('ec2_instance_connect_rhel.eic_parse.run', return_value=0)
+    @patch('ec2_instance_connect_rhel.eic_curl.urlopen')
     @patch('tempfile.mkdtemp')
-    @patch('eic_curl.register_temp_dir')
+    @patch('ec2_instance_connect_rhel.eic_curl.register_temp_dir')
     @patch('os.chmod')
     @patch('pwd.getpwnam')
     @patch('os.path.isfile')
@@ -428,7 +428,7 @@ class TestMainIntegration(unittest.TestCase):
 
         mock_urlopen.side_effect = urlopen_router
 
-        with patch.object(sys, 'argv', ['eic_curl.py', 'testuser']):
+        with patch.object(sys, 'argv', ['ec2_instance_connect_rhel.eic_curl.py', 'testuser']):
             with self.assertRaises(SystemExit) as ctx:
                 eic_curl.main()
 
@@ -443,14 +443,14 @@ class TestMainIntegration(unittest.TestCase):
     @patch('syslog.syslog')
     @patch('pwd.getpwnam', side_effect=KeyError('no such user'))
     def test_nonexistent_user_exits_0(self, _mock_pwd, _mock_syslog):
-        with patch.object(sys, 'argv', ['eic_curl.py', 'nosuchuser']):
+        with patch.object(sys, 'argv', ['ec2_instance_connect_rhel.eic_curl.py', 'nosuchuser']):
             with self.assertRaises(SystemExit) as ctx:
                 eic_curl.main()
         self.assertEqual(ctx.exception.code, 0)
 
     @patch('syslog.syslog')
     def test_no_username_exits_1(self, _mock_syslog):
-        with patch.object(sys, 'argv', ['eic_curl.py']):
+        with patch.object(sys, 'argv', ['ec2_instance_connect_rhel.eic_curl.py']):
             with self.assertRaises(SystemExit) as ctx:
                 eic_curl.main()
         self.assertEqual(ctx.exception.code, 1)

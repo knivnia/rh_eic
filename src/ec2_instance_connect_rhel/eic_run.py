@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 
-import os
 import re
 import subprocess
 import sys
@@ -22,13 +21,6 @@ def validate_username(username):
 
 
 def main():
-    log_info("Checking that script is present.")
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script = os.path.join(script_dir, "eic_curl.py")
-    if not os.path.isfile(script):
-        sys.stderr.write(f"Error: {script} not found\n")
-        sys.exit(EXIT_NOT_FOUND)
-
     log_info("Checking for username argument.")
     if len(sys.argv) < 2:
         log_info("EC2 Instance Connect was invoked without a user.")
@@ -39,8 +31,8 @@ def main():
         log_info(f"Invalid username format")
         sys.exit(EXIT_FAILURE)
 
-
-    command = [sys.executable, script] + sys.argv[1:]
+    command = [sys.executable, "-m",
+               "ec2_instance_connect_rhel.eic_curl"] + sys.argv[1:]
 
     try:
         result = subprocess.run(command, capture_output=True, timeout=5)
