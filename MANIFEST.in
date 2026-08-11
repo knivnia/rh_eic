@@ -1,0 +1,3 @@
+include conf/60-ec2-instance-connect.conf
+include LICENSE
+include README.md
