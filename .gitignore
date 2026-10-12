@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+selinux/tmp/
+*.pp
+*.pp.bz2
+*.egg
+results/

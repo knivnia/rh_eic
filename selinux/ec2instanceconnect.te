@@ -1,0 +1,104 @@
+policy_module(ec2instanceconnect, 1.0.0)
+
+########################################
+#
+# AuthorizedKeysCommand helper for EC2 Instance Connect.
+# sshd executes /usr/bin/eic-run and reads keys from its stdout.
+#
+
+gen_require(`
+	type sshd_t;
+	role system_r;
+')
+
+type eic_t;
+type eic_exec_t;
+type eic_tmp_t;
+
+application_domain(eic_t, eic_exec_t)
+role system_r types eic_t;
+
+files_tmp_file(eic_tmp_t)
+
+# RHEL 10 sshd-session runs AuthorizedKeysCommand as sshd_session_t.
+# sshd_t is the listener domain and does not exec this helper.
+# nnp/nosuid covers OpenSSH no_new_privs.
+eic_domtrans(sshd_t)
+optional_policy(`
+	gen_require(`
+		type sshd_session_t;
+	')
+	eic_domtrans(sshd_session_t)
+')
+
+# A manual run from an unconfined shell enters the same domain.
+optional_policy(`
+	gen_require(`
+		type unconfined_t;
+		role unconfined_r;
+	')
+	role unconfined_r types eic_t;
+	eic_domtrans(unconfined_t)
+')
+
+########################################
+#
+# Process basics. eic-run is a Python script; openssl and ssh-keygen
+# stay in eic_t (execute_no_trans), they do not get their own domains.
+#
+
+libs_use_ld_so(eic_t)
+
+# Do not call corecmd_exec_bin(). On current policy it requires
+# base_ro_file_type (files_exec_all_base_ro_files) and, newer still,
+# sys_resource_type. The RHEL 10 policy store this package installs
+# into has no base_ro_file_type, so semodule -i fails and the helper
+# stays bin_t. bin_t is enough for python3, openssl, and ssh-keygen.
+gen_require(`
+	type bin_t;
+')
+read_lnk_files_pattern(eic_t, bin_t, bin_t)
+list_dirs_pattern(eic_t, bin_t, bin_t)
+can_exec(eic_t, bin_t)
+
+ssh_exec_keygen(eic_t)
+dev_read_urand(eic_t)
+kernel_read_system_state(eic_t)
+miscfiles_read_localization(eic_t)
+files_read_etc_files(eic_t)
+
+allow eic_t self:process { fork sigchld signal signull getsched getcap setrlimit };
+allow eic_t self:fd use;
+allow eic_t self:fifo_file rw_fifo_file_perms;
+allow eic_t self:unix_stream_socket create_stream_socket_perms;
+allow eic_t self:unix_dgram_socket create_socket_perms;
+allow eic_t self:tcp_socket create_stream_socket_perms;
+
+########################################
+#
+# IMDS is HTTP port 80. SELinux cannot limit this to 169.254.169.254.
+# OCSP staples are read from local files (openssl ocsp -respin).
+#
+
+corenet_tcp_bind_generic_node(eic_t)
+corenet_tcp_bind_all_ephemeral_ports(eic_t)
+corenet_tcp_sendrecv_generic_if(eic_t)
+corenet_tcp_sendrecv_generic_node(eic_t)
+corenet_tcp_connect_http_port(eic_t)
+corenet_tcp_sendrecv_http_port(eic_t)
+sysnet_read_config(eic_t)
+
+# /sys/hypervisor/uuid and the DMI board asset tag.
+dev_read_sysfs(eic_t)
+
+# Signer cert, OCSP staples, and key material under /tmp.
+files_search_tmp(eic_t)
+manage_dirs_pattern(eic_t, eic_tmp_t, eic_tmp_t)
+manage_files_pattern(eic_t, eic_tmp_t, eic_tmp_t)
+files_tmp_filetrans(eic_t, eic_tmp_t, { file dir })
+
+# RHEL CA bundle and passwd lookup (pwd.getpwnam reads /etc/passwd).
+miscfiles_read_generic_certs(eic_t)
+auth_read_passwd_file(eic_t)
+
+logging_send_syslog_msg(eic_t)

@@ -1,5 +1,7 @@
 [build-system]
-requires = ["setuptools >= 69"]
+# 61 is the first setuptools that reads the [project] table.
+# RHEL 9's newest setuptools is 68.2.2 (python3.12-setuptools).
+requires = ["setuptools >= 61"]
 build-backend = "setuptools.build_meta"
 
 [project]

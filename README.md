@@ -21,6 +21,7 @@ The RPM installs:
 - `/usr/bin/eic-run`, `eic-curl`, `eic-parse`
 - `/etc/ssh/sshd_config.d/60-ec2-instance-connect.conf`
 - locked system user `ec2-instance-connect` (`AuthorizedKeysCommandUser`)
+- on SELinux systems, the `ec2-instance-connect-rhel-selinux` subpackage, which runs the helper as `eic_t`
 
 ## Install on RHEL 10/ Fedora
 
@@ -44,6 +45,10 @@ src/ec2_instance_connect_rhel/
     eic_parse.py    Certificate and key verification
 conf/
     60-ec2-instance-connect.conf   sshd drop-in (packaged)
+selinux/
+    ec2instanceconnect.te          helper domain (eic_t)
+    ec2instanceconnect.fc          file contexts for /usr/bin/eic-*
+    ec2instanceconnect.if          eic_domtrans() interface
 ec2-instance-connect-rhel.spec     RPM spec
 tests/
 ```
