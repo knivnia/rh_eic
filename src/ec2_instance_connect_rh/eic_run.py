@@ -32,7 +32,7 @@ def main():
         sys.exit(EXIT_FAILURE)
 
     command = [sys.executable, "-m",
-               "ec2_instance_connect_rhel.eic_curl"] + sys.argv[1:]
+               "ec2_instance_connect_rh.eic_curl"] + sys.argv[1:]
 
     try:
         result = subprocess.run(command, capture_output=True, timeout=5)

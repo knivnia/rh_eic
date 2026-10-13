@@ -1,5 +1,5 @@
-%global pkgname ec2-instance-connect-rhel
-%global srcname ec2_instance_connect_rhel
+%global pkgname ec2-instance-connect-rh
+%global srcname ec2_instance_connect_rh
 %global selinuxtype targeted
 %global modulename ec2instanceconnect
 %global with_selinux 1
@@ -11,7 +11,7 @@
 Name:           %{pkgname}
 Version:        0.0.1
 Release:        %autorelease
-Summary:        EC2 Instance Connect for RHEL
+Summary:        EC2 Instance Connect for RHEL and Fedora
 
 License:        Apache-2.0
 URL:            https://github.com/.../%{pkgname}

@@ -141,7 +141,7 @@ class TestEicRunArgumentPassing(unittest.TestCase):
 
     @patch('subprocess.run')
     def test_command_uses_module_invocation(self, mock_run):
-        """Child command should be [sys.executable, -m, ec2_instance_connect_rhel.eic_curl, ...]."""
+        """Child command should be [sys.executable, -m, ec2_instance_connect_rh.eic_curl, ...]."""
         mock_run.return_value = MagicMock(returncode=0, stdout=b'')
 
         with self.assertRaises(SystemExit):
@@ -150,7 +150,7 @@ class TestEicRunArgumentPassing(unittest.TestCase):
         cmd = mock_run.call_args[0][0]
         self.assertEqual(cmd[0], sys.executable)
         self.assertEqual(cmd[1], '-m')
-        self.assertEqual(cmd[2], 'ec2_instance_connect_rhel.eic_curl')
+        self.assertEqual(cmd[2], 'ec2_instance_connect_rh.eic_curl')
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +158,7 @@ class TestEicRunArgumentPassing(unittest.TestCase):
 # ---------------------------------------------------------------------------
 def _eic_run_script():
     """Return the absolute path to eic_run.py inside the installed package."""
-    import ec2_instance_connect_rhel.eic_run as mod
+    import ec2_instance_connect_rh.eic_run as mod
     return os.path.abspath(mod.__file__)
 
 

@@ -1,4 +1,4 @@
-# ec2-instance-connect-rhel
+# ec2-instance-connect-rh
 
 EC2 Instance Connect for RHEL and Fedora.
 
@@ -21,12 +21,12 @@ The RPM installs:
 - `/usr/bin/eic-run`, `eic-curl`, `eic-parse`
 - `/etc/ssh/sshd_config.d/60-ec2-instance-connect.conf`
 - locked system user `ec2-instance-connect` (`AuthorizedKeysCommandUser`)
-- on SELinux systems, the `ec2-instance-connect-rhel-selinux` subpackage, which runs the helper as `eic_t`
+- on SELinux systems, the `ec2-instance-connect-rh-selinux` subpackage, which runs the helper as `eic_t`
 
 ## Install on RHEL 10/ Fedora
 
 ```bash
-sudo dnf -y copr enable knivnia/rh-eic && sudo dnf -y install ec2-instance-connect-rhel
+sudo dnf -y copr enable knivnia/rh-eic && sudo dnf -y install ec2-instance-connect-rh
 ```
 
 Project: [copr.fedorainfracloud.org/coprs/knivnia/rh-eic](https://copr.fedorainfracloud.org/coprs/knivnia/rh-eic/)
@@ -39,7 +39,7 @@ the AWS console or `aws ec2-instance-connect ssh --instance-id=<instance ID>`.
 ## Project layout
 
 ```
-src/ec2_instance_connect_rhel/
+src/ec2_instance_connect_rh/
     eic_run.py      Entry point (AuthorizedKeysCommand)
     eic_curl.py     IMDS communication
     eic_parse.py    Certificate and key verification
@@ -49,7 +49,7 @@ selinux/
     ec2instanceconnect.te          helper domain (eic_t)
     ec2instanceconnect.fc          file contexts for /usr/bin/eic-*
     ec2instanceconnect.if          eic_domtrans() interface
-ec2-instance-connect-rhel.spec     RPM spec
+ec2-instance-connect-rh.spec       RPM spec
 tests/
 ```
 

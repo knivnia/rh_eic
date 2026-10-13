@@ -5,9 +5,9 @@ requires = ["setuptools >= 61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ec2-instance-connect-rhel"
+name = "ec2-instance-connect-rh"
 version = "0.0.1"
-description = "EC2 Instance Connect for RHEL - retrieves and validates SSH keys from AWS IMDS"
+description = "EC2 Instance Connect for RHEL and Fedora - retrieves and validates SSH keys from AWS IMDS"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">= 3.9"
@@ -21,9 +21,9 @@ classifiers = [
 ]
 
 [project.scripts]
-eic-run = "ec2_instance_connect_rhel.eic_run:main"
-eic-curl = "ec2_instance_connect_rhel.eic_curl:main"
-eic-parse = "ec2_instance_connect_rhel.eic_parse:main"
+eic-run = "ec2_instance_connect_rh.eic_run:main"
+eic-curl = "ec2_instance_connect_rh.eic_curl:main"
+eic-parse = "ec2_instance_connect_rh.eic_parse:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
